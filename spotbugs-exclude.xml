@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Exclude Lombok-generated code -->
+    <Match>
+        <Class name="~.*\$\$.*"/>
+    </Match>
+    <!-- Exclude test classes -->
+    <Match>
+        <Class name="~.*Test"/>
+    </Match>
+    <Match>
+        <Package name="~.*\.test\..*"/>
+    </Match>
+    <!-- Suppress EI_EXPOSE_REP on Spring beans / @ConfigurationProperties (Lombok constructors) -->
+    <Match>
+        <Bug code="EI, EI2"/>
+    </Match>
+    <!-- Suppress VA_FORMAT_STRING_USES_NEWLINE in LLM prompt strings where \n is intentional -->
+    <Match>
+        <Bug pattern="VA_FORMAT_STRING_USES_NEWLINE"/>
+    </Match>
+    <!-- Suppress NP false positives: SpotBugs doesn't recognize Spring StringUtils.hasText as null guard -->
+    <Match>
+        <Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+    </Match>
+    <!-- Suppress BX_UNBOXING_IMMEDIATELY_REBOXED: benign boxing style issues -->
+    <Match>
+        <Bug pattern="BX_UNBOXING_IMMEDIATELY_REBOXED"/>
+    </Match>
+    <!-- Suppress RCN: redundant null check (e.g. on @NonNull return values) -->
+    <Match>
+        <Bug pattern="RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE"/>
+    </Match>
+</FindBugsFilter>

@@ -1,0 +1,45 @@
+{
+  "name": "knowledgeops-agent-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .ts,.tsx,.vue",
+    "lint:fix": "eslint . --ext .ts,.tsx,.vue --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,vue,css}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,vue,css}\"",
+    "type-check": "vue-tsc --noEmit",
+    "typecheck": "vue-tsc --noEmit",
+    "ci": "npm run lint && npm run format:check && npm run typecheck"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "dompurify": "^3.4.13",
+    "element-plus": "^2.14.0",
+    "highlight.js": "^11.11.1",
+    "marked": "^18.0.3",
+    "vue": "^3.5.34"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.59.2",
+    "@typescript-eslint/parser": "^8.59.2",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^9.28.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.9.2",
+    "vite": "^6.4.3",
+    "vue-eslint-parser": "^9.4.0",
+    "vue-tsc": "^3.2.8"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.9",
+    "js-yaml": "4.3.1",
+    "nanoid": "3.3.18",
+    "postcss": "8.5.26"
+  }
+}

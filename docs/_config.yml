@@ -1,0 +1,6 @@
+title: 有章 · 校园规章问答助手
+description: 面向高校规章场景的 RAG + ReAct 问答助手：条款级引用溯源、多路召回与两段重排、离线检索评测。
+theme: jekyll-theme-cayman
+show_downloads: true
+github:
+  repository_url: https://github.com/Lumjiel/knowledgeops-campus

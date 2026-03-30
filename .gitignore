@@ -1,0 +1,65 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+
+### Runtime artifacts ###
+data/
+reports/regression/latest.json
+reports/regression/latest.md
+evaluation/predictions.generated.json
+evaluation/predictions.live.json
+logs/*.log
+coverage/
+tmp/
+.runtime/
+
+### Generated SBOM ###
+target/bom.*
+target/dependency-check-report.*
+
+# Local copy/conflict artifacts
+* 2
+* 2.*
+
+# --- Baseline Ignore Rules ---
+__pycache__/
+*.py[cod]
+.env
+.env.*
+node_modules/
+dist/
+
+# Local work files (not part of the project, kept out of source control).
+考研入警准备手册.txt

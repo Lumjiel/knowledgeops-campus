@@ -1,0 +1,71 @@
+name: Nightly Evaluator Contract Check
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Generate large dataset
+        run: python3 scripts/generate_eval_dataset.py
+
+      - name: Generate evaluator contract fixture
+        run: python3 scripts/generate_eval_contract_fixture.py --dataset evaluation/dataset.large.json --output evaluation/predictions.contract.json
+
+      - name: Validate evaluator contract
+        run: python3 scripts/run_regression.py --dataset evaluation/dataset.large.json --predictions evaluation/predictions.contract.json --report-dir reports/evaluation-contract --threshold 0.75
+
+      - name: Upload evaluator contract report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-evaluation-contract-report
+          path: reports/evaluation-contract/latest.*
+
+  owasp-full-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: Cache OWASP NVD Database
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: owasp-nvd-${{ github.run_id }}
+          restore-keys: |
+            owasp-nvd-
+
+      - name: Full OWASP Dependency Check
+        run: |
+          mvn org.owasp:dependency-check-maven:check \
+            -DnvdApiKey=${{ secrets.NVD_API_KEY }} \
+            -DnvdApiDelay=6000 \
+            -DnvdValidForHours=24
+        continue-on-error: true
+
+      - name: Upload OWASP Report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: owasp-nightly-report
+          path: target/dependency-check-report.*

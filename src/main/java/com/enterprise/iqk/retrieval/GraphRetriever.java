@@ -19,6 +19,7 @@ public class GraphRetriever {
 
     private final GraphService graphService;
     private final MeterRegistry meterRegistry;
+    private final Tokenizer tokenizer;
 
     public List<ScoredDocument> retrieve(String query, String tenantId, int topK) {
         Timer.Sample sample = Timer.start(meterRegistry);
@@ -82,7 +83,7 @@ public class GraphRetriever {
         if (!StringUtils.hasText(query)) return "";
         // Simple: take the longest token as keyword
         String longest = "";
-        for (String token : query.split("[^\\p{L}\\p{Nd}]+")) {
+        for (String token : tokenizer.tokenize(query)) {
             if (token.length() > longest.length()) {
                 longest = token;
             }

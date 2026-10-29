@@ -404,10 +404,19 @@
                           class="retrieval-trace-toggle"
                           @click="expandedTraceOpen = !expandedTraceOpen"
                         >
-                          🔍 召回 — · 粗排 — · 精排 — · 重排 —ms ▾
+                          <template v-if="entry.item.retrievalTrace">
+                            🔍 召回 {{ entry.item.retrievalTrace.recall }} · 粗排
+                            {{ entry.item.retrievalTrace.coarse }} · 精排
+                            {{ entry.item.retrievalTrace.fine }} · 重排
+                            {{ entry.item.retrievalTrace.coarseMs +
+                              entry.item.retrievalTrace.fineMs }}ms
+                          </template>
+                          <template v-else>🔍 召回 — · 粗排 — · 精排 — · 重排 —ms ▾</template>
                         </button>
                         <div v-if="expandedTraceOpen" class="retrieval-trace-detail">
-                          <p class="retrieval-trace-note">轨迹未接入：以下为占位行，非真实耗时</p>
+                          <p v-if="!entry.item.retrievalTrace" class="retrieval-trace-note">
+                            轨迹未接入：以下为占位行，非真实耗时
+                          </p>
                           <table>
                             <thead>
                               <tr>
@@ -421,35 +430,33 @@
                               <tr>
                                 <td>向量召回</td>
                                 <td>—</td>
-                                <td>—</td>
-                                <td>—</td>
-                              </tr>
-                              <tr>
-                                <td>关键词召回</td>
-                                <td>—</td>
-                                <td>—</td>
+                                <td>{{ entry.item.retrievalTrace?.recall ?? '—' }}</td>
                                 <td>—</td>
                               </tr>
                               <tr>
-                                <td>融合去重</td>
-                                <td>—</td>
-                                <td>—</td>
-                                <td>—</td>
+                                <td>粗排（{{ entry.item.retrievalTrace?.coarseReranker ?? '—' }}）</td>
+                                <td>{{ entry.item.retrievalTrace?.recall ?? '—' }}</td>
+                                <td>{{ entry.item.retrievalTrace?.coarse ?? '—' }}</td>
+                                <td>
+                                  {{ entry.item.retrievalTrace ? entry.item.retrievalTrace.coarseMs + 'ms' : '—' }}
+                                </td>
                               </tr>
                               <tr>
-                                <td>BM25 粗排</td>
-                                <td>—</td>
-                                <td>—</td>
-                                <td>—</td>
-                              </tr>
-                              <tr>
-                                <td>精排</td>
-                                <td>—</td>
-                                <td>—</td>
-                                <td>—</td>
+                                <td>精排（{{ entry.item.retrievalTrace?.fineReranker ?? '—' }}）</td>
+                                <td>{{ entry.item.retrievalTrace?.coarse ?? '—' }}</td>
+                                <td>{{ entry.item.retrievalTrace?.fine ?? '—' }}</td>
+                                <td>
+                                  {{ entry.item.retrievalTrace ? entry.item.retrievalTrace.fineMs + 'ms' : '—' }}
+                                </td>
                               </tr>
                             </tbody>
                           </table>
+                          <p
+                            v-if="entry.item.retrievalTrace?.degraded"
+                            class="retrieval-trace-note"
+                          >
+                            ⚠ 精排超时，已降级为粗排结果
+                          </p>
                         </div>
                       </div>
                       <div v-if="entry.item.evidence?.length" class="evidence-panel">
@@ -811,6 +818,18 @@ interface ChatCitationCard {
   snippet: string;
 }
 
+interface RetrievalTrace {
+  recall: number;
+  coarse: number;
+  fine: number;
+  coarseMs: number;
+  fineMs: number;
+  degraded: boolean;
+  tokenizer?: string;
+  coarseReranker?: string;
+  fineReranker?: string;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -819,6 +838,7 @@ interface ChatMessage {
   citations?: string[];
   citationCards?: ChatCitationCard[];
   evidence?: string[];
+  retrievalTrace?: RetrievalTrace;
   matchedQuestion?: string;
   state?: 'pending' | 'streaming' | 'done' | 'error' | 'stopped';
 }
@@ -2550,7 +2570,10 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
           }
 
           if (event === 'done') {
-            const done = payload as ReactChatResponse & { citationCards?: ChatCitationCard[] };
+            const done = payload as ReactChatResponse & {
+              citationCards?: ChatCitationCard[];
+              retrievalTrace?: RetrievalTrace;
+            };
             if (done.trace?.length) {
               traceSteps.value = done.trace;
             }
@@ -2563,6 +2586,7 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
             messages.value[assistantIndex].citationCards = Array.isArray(done.citationCards)
               ? done.citationCards.filter((card) => card && card.file && card.snippet)
               : [];
+            messages.value[assistantIndex].retrievalTrace = done.retrievalTrace;
             messages.value[assistantIndex].evidence = Array.isArray(done.evidence)
               ? done.evidence.map((item) => String(item).trim()).filter(Boolean)
               : [];
@@ -2595,7 +2619,10 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
       );
       traceSteps.value = result.trace ?? [];
       messages.value[assistantIndex].content = result.answer || '模型没有返回内容';
-      const withCards = result as ReactChatResponse & { citationCards?: ChatCitationCard[] };
+      const withCards = result as ReactChatResponse & {
+        citationCards?: ChatCitationCard[];
+        retrievalTrace?: RetrievalTrace;
+      };
       messages.value[assistantIndex].citations = Array.isArray(result.citations)
         ? result.citations.map((item) => String(item).trim()).filter(Boolean)
         : [];
@@ -2605,6 +2632,7 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
       messages.value[assistantIndex].evidence = Array.isArray(result.evidence)
         ? result.evidence.map((item) => String(item).trim()).filter(Boolean)
         : [];
+      messages.value[assistantIndex].retrievalTrace = withCards.retrievalTrace;
       messages.value[assistantIndex].state = 'done';
       streamPhase.value = 'done';
       streamStatusDetail.value = '响应已完成';

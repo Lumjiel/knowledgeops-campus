@@ -1,0 +1,4 @@
+{
+  "runs": [],
+  "note": "占位文件：本机无 Docker/MySQL 起不了服务（预期状态）。服务器部署后按 docs/deploy-云服务器手册.md 依次对 4 个配置执行 run_eval.py run --label <配置名>，本文件会自动积累各配置运行结果，再由 report 命令生成 report.md。真实 Recall 数字不许伪造。"
+}

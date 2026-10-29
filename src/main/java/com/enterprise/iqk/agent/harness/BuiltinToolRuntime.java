@@ -100,7 +100,9 @@ public class BuiltinToolRuntime implements AgentRuntime {
         payload.put("query", query);
         payload.put("answer", result.getAnswer());
         payload.put("citations", result.getCitations());
+        payload.put("citationCards", result.getCitationCards());
         payload.put("evidence", result.getEvidence());
+        payload.put("retrievalTrace", result.getRetrievalTrace());
         return payload;
     }
 

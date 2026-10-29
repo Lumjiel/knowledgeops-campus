@@ -6,13 +6,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -26,6 +23,7 @@ public class KeywordRetriever {
 
     private final VectorStore vectorStore;
     private final MeterRegistry meterRegistry;
+    private final Tokenizer tokenizer;
 
     public List<ScoredDocument> retrieve(String query, String tenantId, String chatId, int topK) {
         Timer.Sample sample = Timer.start(meterRegistry);
@@ -88,10 +86,7 @@ public class KeywordRetriever {
     }
 
     private Set<String> tokenize(String text) {
-        if (!StringUtils.hasText(text)) return Set.of();
-        return Arrays.stream(text.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{Nd}]+"))
-                .filter(StringUtils::hasText)
-                .collect(Collectors.toSet());
+        return new java.util.LinkedHashSet<>(tokenizer.tokenize(text));
     }
 
     private String metaStr(Document d, String key, String fallback) {

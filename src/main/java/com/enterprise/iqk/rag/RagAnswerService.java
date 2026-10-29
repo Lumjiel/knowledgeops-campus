@@ -3,6 +3,7 @@ package com.enterprise.iqk.rag;
 import com.enterprise.iqk.config.properties.RagProperties;
 import com.enterprise.iqk.constants.SystemConstants;
 import com.enterprise.iqk.llm.ModelRouter;
+import com.enterprise.iqk.retrieval.RerankPipeline;
 import com.enterprise.iqk.security.TenantContext;
 import com.enterprise.iqk.service.TenantCostService;
 import io.micrometer.core.instrument.Counter;
@@ -19,11 +20,7 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
@@ -37,6 +34,7 @@ public class RagAnswerService {
     private final RagProperties ragProperties;
     private final MeterRegistry meterRegistry;
     private final TenantCostService tenantCostService;
+    private final RerankPipeline rerankPipeline;
 
     public RagResult answer(String prompt, String tenantId, String chatId, String conversationId, String modelProfile) {
         Timer.Sample pipelineSample = Timer.start(meterRegistry);
@@ -48,7 +46,7 @@ public class RagAnswerService {
                     + "\" && chat_id == \"" + escapeFilterValue(chatId) + "\"";
             SearchRequest request = SearchRequest.builder()
                     .query(prompt)
-                    .topK(ragProperties.getRetrieveTopK())
+                    .topK(ragProperties.getRetrievalTopN())
                     .similarityThreshold(ragProperties.getSimilarityThreshold())
                     .filterExpression(filterExpression)
                     .build();
@@ -63,8 +61,8 @@ public class RagAnswerService {
                         .build();
             }
 
-            List<Document> reranked = rerankWithMetrics(prompt, retrieved);
-            List<Document> selected = reranked.stream()
+            RerankPipeline.PipelineResult pipeline = rerankWithMetrics(prompt, retrieved);
+            List<Document> selected = pipeline.documents().stream()
                     .limit(Math.max(1, ragProperties.getRerankTopK()))
                     .toList();
 
@@ -86,6 +84,10 @@ public class RagAnswerService {
             List<String> citations = selected.stream()
                     .map(this::citationText)
                     .toList();
+            List<CitationCard> citationCards = new java.util.ArrayList<>();
+            for (int i = 0; i < selected.size(); i++) {
+                citationCards.add(citationCard(selected.get(i), i + 1));
+            }
             List<String> evidence = selected.stream()
                     .map(this::evidenceText)
                     .toList();
@@ -95,7 +97,9 @@ public class RagAnswerService {
             return RagResult.builder()
                     .answer(answerWithFooter)
                     .citations(citations)
+                    .citationCards(citationCards)
                     .evidence(evidence)
+                    .retrievalTrace(buildRetrievalTrace(pipeline))
                     .build();
         } finally {
             pipelineSample.stop(Timer.builder("rag.pipeline.latency")
@@ -132,12 +136,12 @@ public class RagAnswerService {
         }
     }
 
-    private List<Document> rerankWithMetrics(String prompt, List<Document> docs) {
+    private RerankPipeline.PipelineResult rerankWithMetrics(String prompt, List<Document> docs) {
         Timer.Sample sample = Timer.start(meterRegistry);
         String outcome = "error";
         try {
-            List<Document> reranked = rerank(prompt, docs);
-            outcome = reranked.isEmpty() ? "empty" : "success";
+            RerankPipeline.PipelineResult reranked = rerankPipeline.rerank(prompt, docs, ragProperties.getRerankTopK());
+            outcome = reranked.documents().isEmpty() ? "empty" : "success";
             return reranked;
         } finally {
             sample.stop(Timer.builder("rag.rerank.latency")
@@ -146,31 +150,6 @@ public class RagAnswerService {
                     .publishPercentileHistogram()
                     .register(meterRegistry));
         }
-    }
-
-    private List<Document> rerank(String prompt, List<Document> docs) {
-        Set<String> promptTokens = tokenize(prompt);
-        return docs.stream()
-                .sorted((a, b) -> Double.compare(scoreDoc(promptTokens, b), scoreDoc(promptTokens, a)))
-                .collect(Collectors.toList());
-    }
-
-    private double scoreDoc(Set<String> promptTokens, Document doc) {
-        Set<String> docTokens = tokenize(doc.getFormattedContent());
-        if (docTokens.isEmpty()) {
-            return 0.0;
-        }
-        long overlap = promptTokens.stream().filter(docTokens::contains).count();
-        return (double) overlap / docTokens.size();
-    }
-
-    private Set<String> tokenize(String text) {
-        if (!StringUtils.hasText(text)) {
-            return Set.of();
-        }
-        return Arrays.stream(text.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{Nd}]+"))
-                .filter(StringUtils::hasText)
-                .collect(Collectors.toSet());
     }
 
     private String buildContext(List<Document> docs) {
@@ -192,12 +171,66 @@ public class RagAnswerService {
         return "source=" + file + ", chunk=" + chunk;
     }
 
+    /**
+     * 条款级引用卡片（spec-A1）：在旧 citationText 之外的结构化补充，citations 原格式不动。
+     * page_number 取自 PDF 入库 metadata，缺失时返回 null——不编页码。
+     */
+    private CitationCard citationCard(Document d, int index) {
+        Object file = d.getMetadata().getOrDefault("file_name", "unknown");
+        String fileName = String.valueOf(file);
+        String displayName = fileName.endsWith(".pdf")
+                ? fileName.substring(0, fileName.length() - 4)
+                : fileName;
+        Integer page = null;
+        Object rawPage = d.getMetadata().get("page_number");
+        if (rawPage instanceof Number pageNumber) {
+            page = pageNumber.intValue();
+        } else if (rawPage != null && StringUtils.hasText(String.valueOf(rawPage))) {
+            try {
+                page = Integer.parseInt(String.valueOf(rawPage).trim());
+            } catch (NumberFormatException ignored) {
+                page = null;
+            }
+        }
+        int chunkIndex;
+        Object rawChunk = d.getMetadata().getOrDefault("chunk_index", 0);
+        if (rawChunk instanceof Number chunkNumber) {
+            chunkIndex = chunkNumber.intValue();
+        } else {
+            try {
+                chunkIndex = Integer.parseInt(String.valueOf(rawChunk).trim());
+            } catch (NumberFormatException ignored) {
+                chunkIndex = 0;
+            }
+        }
+        String snippet = emptyIfBlank(d.getFormattedContent()).replaceAll("\\s+", " ").trim();
+        if (snippet.length() > 180) {
+            snippet = snippet.substring(0, 180) + "...";
+        }
+        return new CitationCard(index, displayName, page, chunkIndex, snippet);
+    }
+
     private String evidenceText(Document d) {
         String raw = emptyIfBlank(d.getFormattedContent()).replaceAll("\\s+", " ").trim();
         if (raw.length() <= 180) {
             return raw;
         }
         return raw.substring(0, 180) + "...";
+    }
+
+    /** 三级管线的真实计数与耗时（spec-A5 检索轨迹面板的数据来源），全部实测值 */
+    private java.util.Map<String, Object> buildRetrievalTrace(RerankPipeline.PipelineResult pipeline) {
+        java.util.Map<String, Object> trace = new java.util.LinkedHashMap<>();
+        trace.put("recall", pipeline.recallCount());
+        trace.put("coarse", pipeline.coarseCount());
+        trace.put("fine", pipeline.documents().size());
+        trace.put("coarseMs", pipeline.coarseMs());
+        trace.put("fineMs", pipeline.fineMs());
+        trace.put("degraded", pipeline.degraded());
+        trace.put("tokenizer", ragProperties.getTokenizer());
+        trace.put("coarseReranker", ragProperties.getReranker());
+        trace.put("fineReranker", ragProperties.getFineReranker());
+        return trace;
     }
 
     private String emptyIfBlank(String value) {
@@ -225,6 +258,21 @@ public class RagAnswerService {
     public static class RagResult {
         private String answer;
         private List<String> citations;
+        private List<CitationCard> citationCards;
         private List<String> evidence;
+        private java.util.Map<String, Object> retrievalTrace;
+    }
+
+    /**
+     * 条款级引用卡片：index 1-based 与 [1][2] 编号对应；page 缺失为 null；
+     * snippet 为原文前 180 字（空白归一化）。
+     */
+    public record CitationCard(
+            int index,
+            String file,
+            Integer page,
+            int chunkIndex,
+            String snippet
+    ) {
     }
 }

@@ -22,6 +22,7 @@ import java.util.Locale;
 public class EvidenceJudgeService {
 
     private final MeterRegistry meterRegistry;
+    private final Tokenizer tokenizer;
 
     private static final double RELEVANCE_WEIGHT = 0.50;
     private static final double AUTHORITY_WEIGHT = 0.30;
@@ -70,7 +71,7 @@ public class EvidenceJudgeService {
         String lowerContent = doc.getContent().toLowerCase(Locale.ROOT);
         String lowerQuery = query.toLowerCase(Locale.ROOT);
         long hits = 0;
-        for (String token : lowerQuery.split("[^\\p{L}\\p{Nd}]+")) {
+        for (String token : new java.util.LinkedHashSet<>(tokenizer.tokenize(lowerQuery))) {
             if (token.length() >= 2 && lowerContent.contains(token)) {
                 hits++;
             }

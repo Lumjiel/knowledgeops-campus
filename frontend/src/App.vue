@@ -2,9 +2,9 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand-block">
-        <p class="eyebrow">KnowledgeOps Agent</p>
-        <h1>Chat Console</h1>
-        <p class="brand-sub">面向知识运营团队的 ReAct 工作台</p>
+        <p class="eyebrow">校园规章问答</p>
+        <h1>校园规章问答助手</h1>
+        <p class="brand-sub">南京工程学院 · 学生手册 2023 版</p>
       </div>
 
       <button class="new-chat-btn" type="button" @click="createAndSwitchSession">+ 新建会话</button>
@@ -15,14 +15,14 @@
           :class="{ active: activeView === 'chat' }"
           @click="activateView('chat')"
         >
-          Chat
+          对话
         </button>
         <button
           type="button"
           :class="{ active: activeView === 'evaluation' }"
           @click="activateView('evaluation')"
         >
-          Evaluation
+          检索评测
         </button>
       </div>
 
@@ -212,8 +212,8 @@
           </p>
         </div>
         <div v-else>
-          <p class="workspace-kicker">RAG Evaluation</p>
-          <h2>{{ selectedEvalDataset?.name || 'Evaluation Studio' }}</h2>
+          <p class="workspace-kicker">检索评测</p>
+          <h2>{{ selectedEvalDataset?.name || '评测工作台' }}</h2>
           <p class="workspace-sub">
             {{ evalCurrentRun?.runId || 'no run' }} · {{ evalCurrentRun?.status || 'idle' }}
           </p>
@@ -263,7 +263,7 @@
             >导出报告</el-button
           >
           <el-button size="small" :disabled="!evalCurrentRun" @click="markCurrentEvalRunBaseline"
-            >设为 Baseline</el-button
+            >设为基线</el-button
           >
         </div>
       </header>
@@ -285,14 +285,14 @@
 
           <template v-else>
             <div v-if="isEmptyConversation" class="welcome-block">
-              <h3>开始一个新问题</h3>
-              <p>支持消息编辑后重发分支、流式轨迹、长会话虚拟渲染。</p>
+              <h3>校园规章问答助手</h3>
+              <p>问一句，给你条款依据</p>
               <div class="welcome-prompts">
                 <button
                   v-for="sample in quickPrompts"
                   :key="sample"
                   type="button"
-                  @click="prompt = sample"
+                  @click="sendQuickPrompt(sample)"
                 >
                   {{ sample }}
                 </button>
@@ -331,7 +331,51 @@
                     <div v-else>
                       <!-- eslint-disable-next-line vue/no-v-html -->
                       <div class="markdown" v-html="renderMarkdown(entry.item.content)"></div>
-                      <div v-if="entry.item.citations?.length" class="citation-panel">
+                      <div v-if="entry.item.citationCards?.length" class="citation-panel">
+                        <p class="citation-title">条款依据</p>
+                        <div class="citation-card-list">
+                          <div
+                            v-for="card in entry.item.citationCards"
+                            :key="`${entry.item.id}-card-${card.index}`"
+                            class="citation-card"
+                          >
+                            <button
+                              type="button"
+                              class="citation-card-head"
+                              @click="toggleCitationCard(`${entry.item.id}-${card.index}`)"
+                            >
+                              <span class="citation-card-index">[{{ card.index }}]</span>
+                              <span class="citation-card-file">{{ card.file }}</span>
+                              <span v-if="card.page != null" class="citation-card-page"
+                                >· P{{ card.page }}</span
+                              >
+                              <span class="citation-card-caret">{{
+                                expandedCitationCards.has(`${entry.item.id}-${card.index}`)
+                                  ? '▴'
+                                  : '▾'
+                              }}</span>
+                            </button>
+                            <p
+                              class="citation-card-snippet"
+                              :class="{ expanded: expandedCitationCards.has(`${entry.item.id}-${card.index}`) }"
+                              v-html="renderSnippet(card.snippet, entry.item.matchedQuestion)"
+                            ></p>
+                            <div class="citation-card-actions">
+                              <button
+                                type="button"
+                                class="citation-card-link"
+                                @click="openCitation(citationTextOf(card))"
+                              >
+                                展开原文
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        v-else-if="entry.item.citations?.length"
+                        class="citation-panel"
+                      >
                         <p class="citation-title">来源引用</p>
                         <div class="citation-list">
                           <button
@@ -343,6 +387,69 @@
                           >
                             [{{ citationIndex + 1 }}] {{ citation }}
                           </button>
+                        </div>
+                      </div>
+                      <div
+                        v-if="entry.item.role === 'assistant' && !hasCitationSource(entry.item)"
+                        class="no-citation-fallback"
+                      >
+                        ⚠ 未在学生手册中找到直接依据，建议咨询学生处（025-xxxxxxx）或辅导员
+                      </div>
+                      <div
+                        v-if="entry.item.role === 'assistant' && entry.item.state === 'done'"
+                        class="retrieval-trace-row"
+                      >
+                        <button
+                          type="button"
+                          class="retrieval-trace-toggle"
+                          @click="expandedTraceOpen = !expandedTraceOpen"
+                        >
+                          🔍 召回 — · 粗排 — · 精排 — · 重排 —ms ▾
+                        </button>
+                        <div v-if="expandedTraceOpen" class="retrieval-trace-detail">
+                          <p class="retrieval-trace-note">轨迹未接入：以下为占位行，非真实耗时</p>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>阶段</th>
+                                <th>输入</th>
+                                <th>输出</th>
+                                <th>耗时</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td>向量召回</td>
+                                <td>—</td>
+                                <td>—</td>
+                                <td>—</td>
+                              </tr>
+                              <tr>
+                                <td>关键词召回</td>
+                                <td>—</td>
+                                <td>—</td>
+                                <td>—</td>
+                              </tr>
+                              <tr>
+                                <td>融合去重</td>
+                                <td>—</td>
+                                <td>—</td>
+                                <td>—</td>
+                              </tr>
+                              <tr>
+                                <td>BM25 粗排</td>
+                                <td>—</td>
+                                <td>—</td>
+                                <td>—</td>
+                              </tr>
+                              <tr>
+                                <td>精排</td>
+                                <td>—</td>
+                                <td>—</td>
+                                <td>—</td>
+                              </tr>
+                            </tbody>
+                          </table>
                         </div>
                       </div>
                       <div v-if="entry.item.evidence?.length" class="evidence-panel">
@@ -553,7 +660,7 @@
         <aside class="eval-side-panel">
           <div class="eval-panel-head">
             <div>
-              <p class="section-label">Datasets</p>
+              <p class="section-label">数据集</p>
               <strong>{{ evalDatasets.length }}</strong>
             </div>
           </div>
@@ -573,9 +680,9 @@
           </div>
 
           <div class="eval-create-panel">
-            <p class="section-label">Create Dataset</p>
-            <el-input v-model="evalDatasetName" size="small" placeholder="Dataset name" />
-            <el-input v-model="evalDatasetDescription" size="small" placeholder="Description" />
+            <p class="section-label">创建评测集</p>
+            <el-input v-model="evalDatasetName" size="small" placeholder="数据集名称" />
+            <el-input v-model="evalDatasetDescription" size="small" placeholder="描述" />
             <el-input
               v-model="evalDatasetJson"
               class="eval-json-input"
@@ -605,12 +712,12 @@
 
           <div class="eval-run-grid">
             <div class="eval-run-summary">
-              <p class="section-label">Baseline</p>
+              <p class="section-label">基线</p>
               <strong>{{ evalBaselineRun?.runId || 'none' }}</strong>
               <span>{{ formatRunScore(evalBaselineRun?.metrics.runScore) }}</span>
             </div>
             <div class="eval-run-summary current">
-              <p class="section-label">Current</p>
+              <p class="section-label">当前</p>
               <strong>{{ evalCurrentRun?.runId || 'none' }}</strong>
               <span>{{ formatRunScore(evalCurrentRun?.metrics.runScore) }}</span>
             </div>
@@ -622,20 +729,20 @@
             height="100%"
             empty-text="暂无评测结果"
           >
-            <el-table-column prop="caseId" label="Case" min-width="120" />
-            <el-table-column prop="status" label="Status" width="110" />
-            <el-table-column label="Score" width="110">
+            <el-table-column prop="caseId" label="用例" min-width="120" />
+            <el-table-column prop="status" label="状态" width="110" />
+            <el-table-column label="得分" width="110">
               <template #default="{ row }">{{ formatPercent(row.score) }}</template>
             </el-table-column>
-            <el-table-column label="Citation" width="120">
+            <el-table-column label="引用覆盖" width="120">
               <template #default="{ row }">{{ formatPercent(row.citationCoverage) }}</template>
             </el-table-column>
-            <el-table-column label="Latency" width="120">
+            <el-table-column label="延迟" width="120">
               <template #default="{ row }">{{ row.latencyMs }}ms</template>
             </el-table-column>
             <el-table-column
               prop="question"
-              label="Question"
+              label="问题"
               min-width="280"
               show-overflow-tooltip
             />
@@ -696,13 +803,23 @@ import type {
   TenantCostSummary,
 } from './types/react';
 
+interface ChatCitationCard {
+  index: number;
+  file: string;
+  page?: number | null;
+  chunkIndex: number;
+  snippet: string;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   createdAt: number;
   citations?: string[];
+  citationCards?: ChatCitationCard[];
   evidence?: string[];
+  matchedQuestion?: string;
   state?: 'pending' | 'streaming' | 'done' | 'error' | 'stopped';
 }
 
@@ -892,11 +1009,73 @@ function normalizeMessage(raw: unknown): ChatMessage {
     citations: Array.isArray(candidate.citations)
       ? candidate.citations.map((item) => String(item).trim()).filter(Boolean)
       : [],
+    citationCards: Array.isArray(candidate.citationCards)
+      ? candidate.citationCards.filter(
+          (card): card is ChatCitationCard =>
+            Boolean(card) && typeof card.file === 'string' && typeof card.snippet === 'string',
+        )
+      : [],
     evidence: Array.isArray(candidate.evidence)
       ? candidate.evidence.map((item) => String(item).trim()).filter(Boolean)
       : [],
     state: candidate.state || 'done',
   };
+}
+
+const expandedCitationCards = ref<Set<string>>(new Set());
+const expandedTraceOpen = ref(false);
+
+function toggleCitationCard(key: string): void {
+  const next = new Set(expandedCitationCards.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  expandedCitationCards.value = next;
+}
+
+function citationTextOf(card: ChatCitationCard): string {
+  return `source=${card.file}.pdf, chunk=${card.chunkIndex}`;
+}
+
+function hasCitationSource(item: ChatMessage): boolean {
+  return Boolean(item.citationCards?.length || item.citations?.length);
+}
+
+/** 从用户问题中提取 ≥2 字的中文词，用于 snippet 高亮；无匹配返回原文 */
+function questionKeywords(question: string | undefined): string[] {
+  if (!question) {
+    return [];
+  }
+  const matches = question.match(/[\u4e00-\u9fa5]{2,}/g) ?? [];
+  return [...new Set(matches)].filter((word) => word.length >= 2);
+}
+
+/**
+ * snippet 渲染：先 HTML 转义再高亮（防注入），expanded 时展示全文。
+ * 高亮只包 <mark>，匹配不到就原样返回，不报错。
+ */
+function renderSnippet(snippet: string, question?: string): string {
+  const text = String(snippet ?? '');
+  const safe = escapeHtml(text);
+  const keywords = questionKeywords(question);
+  if (!keywords.length) {
+    return safe;
+  }
+  const pattern = new RegExp(
+    `(${keywords.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
+    'g',
+  );
+  return safe.replace(pattern, '<mark>$1</mark>');
+}
+
+async function sendQuickPrompt(sample: string): Promise<void> {
+  if (sending.value) {
+    return;
+  }
+  prompt.value = sample;
+  await send();
 }
 
 function deriveTitle(text: string): string {
@@ -1141,9 +1320,10 @@ let resizeObserver: ResizeObserver | null = null;
 let streamResetTimer: number | null = null;
 
 const quickPrompts = [
-  '先总结这个会话的关键结论，再列出 3 条行动项',
-  '帮我按课程类型推荐三门就业导向课程',
-  '先检索知识库，再给出本周学习计划',
+  '旷课 50 学时会被怎么处分',
+  '缓考怎么办',
+  '转专业需要什么条件',
+  '被记过了还能入党吗',
 ];
 
 const sessionCount = computed(() => sessions.value.length);
@@ -1162,12 +1342,12 @@ const evalMetricCards = computed<EvalMetricCard[]>(() => {
   const current = evalCurrentRun.value?.metrics;
   const baseline = evalBaselineRun.value?.metrics;
   return [
-    metricCard('runScore', 'Run Score', current, baseline, 'percent'),
-    metricCard('retrievalHitRate', 'Retrieval Hit', current, baseline, 'percent'),
-    metricCard('citationCoverageRate', 'Citation Coverage', current, baseline, 'percent'),
-    metricCard('answerFaithfulnessScore', 'Faithfulness', current, baseline, 'percent'),
-    metricCard('avgLatencyMs', 'Avg Latency', current, baseline, 'ms', true),
-    metricCard('failureRate', 'Failure Rate', current, baseline, 'percent', true),
+    metricCard('runScore', '总评分', current, baseline, 'percent'),
+    metricCard('retrievalHitRate', '检索命中', current, baseline, 'percent'),
+    metricCard('citationCoverageRate', '引用覆盖', current, baseline, 'percent'),
+    metricCard('answerFaithfulnessScore', '忠实度', current, baseline, 'percent'),
+    metricCard('avgLatencyMs', '平均延迟', current, baseline, 'ms', true),
+    metricCard('failureRate', '失败率', current, baseline, 'percent', true),
   ];
 });
 
@@ -2314,7 +2494,9 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
   const assistantMsg: ChatMessage = {
     ...createMessage('assistant', ''),
     citations: [],
+    citationCards: [],
     evidence: [],
+    matchedQuestion: question,
     state: 'pending',
   };
 
@@ -2368,7 +2550,7 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
           }
 
           if (event === 'done') {
-            const done = payload as ReactChatResponse;
+            const done = payload as ReactChatResponse & { citationCards?: ChatCitationCard[] };
             if (done.trace?.length) {
               traceSteps.value = done.trace;
             }
@@ -2377,6 +2559,9 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
             }
             messages.value[assistantIndex].citations = Array.isArray(done.citations)
               ? done.citations.map((item) => String(item).trim()).filter(Boolean)
+              : [];
+            messages.value[assistantIndex].citationCards = Array.isArray(done.citationCards)
+              ? done.citationCards.filter((card) => card && card.file && card.snippet)
               : [];
             messages.value[assistantIndex].evidence = Array.isArray(done.evidence)
               ? done.evidence.map((item) => String(item).trim()).filter(Boolean)
@@ -2410,8 +2595,12 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
       );
       traceSteps.value = result.trace ?? [];
       messages.value[assistantIndex].content = result.answer || '模型没有返回内容';
+      const withCards = result as ReactChatResponse & { citationCards?: ChatCitationCard[] };
       messages.value[assistantIndex].citations = Array.isArray(result.citations)
         ? result.citations.map((item) => String(item).trim()).filter(Boolean)
+        : [];
+      messages.value[assistantIndex].citationCards = Array.isArray(withCards.citationCards)
+        ? withCards.citationCards.filter((card) => card && card.file && card.snippet)
         : [];
       messages.value[assistantIndex].evidence = Array.isArray(result.evidence)
         ? result.evidence.map((item) => String(item).trim()).filter(Boolean)
@@ -3195,6 +3384,181 @@ h2 {
   font-size: 12px;
   cursor: pointer;
   text-align: left;
+}
+
+/* ── 校园规章主题设计令牌（styles.css 不在改动白名单，挂 .app-shell 等效 :root） ── */
+.app-shell {
+  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --color-primary: #1e3a8a;
+  --color-accent: #2563eb;
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-text: #0f172a;
+  --color-text-sub: #64748b;
+  --color-border: #e2e8f0;
+  --color-quote-bg: #f1f5f9;
+  --radius-card: 10px;
+  --radius-chip: 8px;
+  --radius-input: 12px;
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-hover: 0 4px 12px rgba(15, 23, 42, 0.1);
+}
+
+/* ── 条款级引用卡片（spec-A4/A9） ── */
+.citation-card-list {
+  display: grid;
+  gap: 8px;
+}
+
+.citation-card {
+  background: var(--color-quote-bg);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-chip);
+  padding: 12px 16px;
+  box-shadow: var(--shadow-card);
+}
+
+.citation-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.citation-card-index {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primary);
+}
+
+.citation-card-page {
+  color: var(--color-text-sub);
+  font-weight: 400;
+}
+
+.citation-card-caret {
+  margin-left: auto;
+  color: var(--color-text-sub);
+}
+
+.citation-card-snippet {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.citation-card-snippet.expanded {
+  display: block;
+  overflow: visible;
+}
+
+.citation-card-snippet mark {
+  background: #fef08a;
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 4px;
+}
+
+.citation-card-actions {
+  margin-top: 8px;
+  text-align: right;
+}
+
+.citation-card-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.citation-card-link:hover {
+  text-decoration: underline;
+}
+
+/* ── 兜底提示条（spec-A7：黄底，不用红） ── */
+.no-citation-fallback {
+  margin-top: 8px;
+  background: #fffbeb;
+  border-left: 3px solid #fde68a;
+  color: #92400e;
+  border-radius: var(--radius-chip);
+  padding: 8px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ── 检索轨迹行（spec-A5：壳，标「轨迹未接入」） ── */
+.retrieval-trace-row {
+  margin-top: 8px;
+}
+
+.retrieval-trace-toggle {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  color: var(--color-text-sub);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.retrieval-trace-detail {
+  margin-top: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-chip);
+  background: var(--color-surface);
+  padding: 8px 16px;
+}
+
+.retrieval-trace-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--color-text-sub);
+}
+
+.retrieval-trace-detail table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.retrieval-trace-detail th,
+.retrieval-trace-detail td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 4px 8px;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.retrieval-trace-detail th {
+  color: var(--color-text-sub);
+  font-weight: 600;
+}
+
+/* ── 空状态 chip（spec-A3/A9） ── */
+.welcome-prompts button {
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.welcome-prompts button:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-hover);
 }
 
 .evidence-panel ul {

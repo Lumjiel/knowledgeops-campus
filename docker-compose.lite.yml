@@ -64,7 +64,9 @@ services:
     mem_limit: 512m
 
   web:
-    build: ./frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     ports: ["80:80"]
     depends_on:
       app:

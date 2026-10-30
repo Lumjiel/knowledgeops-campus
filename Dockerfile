@@ -7,7 +7,8 @@ COPY checkstyle.xml pmd-ruleset.xml spotbugs-exclude.xml owasp-suppressions.xml 
 COPY src ./src
 
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -DskipTests package -q && \
+    printf '<?xml version="1.0"?><settings><mirrors><mirror><id>aliyun</id><mirrorOf>central</mirrorOf><url>https://maven.aliyun.com/repository/public</url></mirror></mirrors></settings>' > /tmp/mirror-settings.xml && \
+    mvn -s /tmp/mirror-settings.xml -DskipTests package -q && \
     mkdir -p deps && \
     cp target/*.jar deps/app.jar
 

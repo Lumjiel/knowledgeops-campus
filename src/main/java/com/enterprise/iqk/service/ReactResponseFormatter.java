@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Component
@@ -31,6 +32,7 @@ public class ReactResponseFormatter {
                 .answer(attachCitationFooter(answer, citations))
                 .fallback(fallback)
                 .citations(citations)
+                .citationCards(extractTraceMaps(trace, "citationCards"))
                 .evidence(evidence)
                 .routeProfile(routeDecision == null ? "" : routeDecision.profile())
                 .routeReason(routeDecision == null ? "" : routeDecision.reason())
@@ -77,6 +79,38 @@ public class ReactResponseFormatter {
                     String normalized = emptyIfBlank(String.valueOf(item));
                     if (StringUtils.hasText(normalized)) {
                         values.add(normalized);
+                    }
+                }
+            }
+        }
+        return List.copyOf(values);
+    }
+
+    /**
+     * 从 trace observation 提取结构化列表（如 rag_search 产出的 citationCards）。
+     * 条目既可能是 Map，也可能是 record（rag 包的 CitationCard），统一转 Map 供 JSON 序列化。
+     */
+    private List<Map<String, Object>> extractTraceMaps(List<ReactTraceStepVO> trace, String key) {
+        if (trace == null || trace.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> values = new java.util.ArrayList<>();
+        for (ReactTraceStepVO step : trace) {
+            if (step == null || !(step.getObservation() instanceof java.util.Map<?, ?> observation)) {
+                continue;
+            }
+            Object raw = observation.get(key);
+            if (raw instanceof List<?> list) {
+                for (Object item : list) {
+                    if (item == null) {
+                        continue;
+                    }
+                    try {
+                        values.add(objectMapper.convertValue(item,
+                                new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {
+                                }));
+                    } catch (IllegalArgumentException ex) {
+                        // 单条结构异常丢弃，不影响其余卡片
                     }
                 }
             }

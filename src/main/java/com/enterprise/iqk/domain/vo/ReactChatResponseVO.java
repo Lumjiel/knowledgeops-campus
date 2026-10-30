@@ -14,6 +14,7 @@ public class ReactChatResponseVO {
     private String answer;
     private Boolean fallback;
     private List<String> citations;
+    private List<java.util.Map<String, Object>> citationCards;
     private List<String> evidence;
     private String routeProfile;
     private String routeReason;

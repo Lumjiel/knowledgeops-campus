@@ -69,3 +69,113 @@ docker compose -f docker-compose.lite.yml restart app
 | 第 6 条 citationCards 为空 | chatId 是否用了 `campus-rules`；`docker compose logs app \| grep "\[seed\]"` 看导入是否成功 |
 | 重启后回答质量突变/检索空 | 第 7 条没过说明 volume 没挂对：`docker volume inspect knowledgeops-agent_vector-data` |
 | web 502 | app healthcheck 未通过（看 `docker compose ps` 的 health 列），或 nginx 转发目标 `app:8080` 不可达 |
+
+---
+
+## 六、实战复盘 · 实际踩的六个坑（2026-10-30）
+
+> spec-D 预判了 3 个坑（volume / MySQL ready / 预置语料），实际部署踩了 6 个。
+> 以下全部是**真实发生并已修复**的，按暴露顺序。
+
+### 坑 1 · Flyway V17 迁移必然失败（上游 bug）
+
+```
+Migration V17__course_school_tenant_isolation.sql failed
+SQL State: 42000  Error Code: 1091
+Can't DROP 'city'; check that column/key exists
+```
+
+V17 最后一行 `ALTER TABLE school DROP INDEX city;` 的注释写着「no-op if the old index does not exist」，
+但 **MySQL 的 DROP INDEX 不是 no-op**——索引不存在直接报 1091。该迁移在任何干净库上都必然失败。
+
+已改为先查 `information_schema.statistics` 再动态执行（无索引走 `DO 0`）。
+
+### 坑 2 · `.env` 里有 ≠ 容器能看到
+
+`app.security.jwt-secret must not be blank` —— `.env` 里有 `APP_JWT_SECRET`，但 compose 的
+`environment` 段没透传。**新增任何环境变量都必须同时改 compose。**
+
+连带：prod profile 会拒绝 `spring.rabbitmq` 的 `guest/guest` 默认值，**即使这个部署不用 MQ**。
+需给 `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD` 任意非 guest 值。
+
+### 坑 3 · health 一直 DOWN，web 永远起不来（最耗时）
+
+lite 版砍掉了 redis / rabbitmq，但 `RedisReactiveHealthIndicator` 和 `RabbitHealthIndicator`
+还在跑，连不上就报 DOWN；web 因 `depends_on: service_healthy` 一直等着。
+
+```yaml
+- MANAGEMENT_HEALTH_REDIS_ENABLED=false
+- MANAGEMENT_HEALTH_RABBIT_ENABLED=false
+- MANAGEMENT_TRACING_ENABLED=false   # 顺带关掉每秒刷的 "Failed to export spans"
+```
+
+排查技巧：`show-details` 默认 `when_authorized`，看不到明细。临时加
+`MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always` 就能看到哪个 component 挂了。
+
+### 坑 4 · 前端标题没改
+
+只改了 `App.vue` 的品牌文案，漏了 `frontend/index.html` 的 `<title>`。
+
+### 坑 5 · 向量快照写不进卷
+
+语料导入 `SUCCEEDED` 但 `/data/vector-store/` 是空的：
+
+```
+Creating new vector store file: /data/vector-store/chat-pdf.json.tmp
+WARN  Failed to persist SimpleVectorStore snapshot
+```
+
+卷是 `root:root`，容器以 `uid=100(appuser)` 运行。修法：
+
+```bash
+docker run --rm -v knowledgeops_vector-data:/v alpine chown -R 100:101 /v
+```
+
+### 坑 6 · ReAct 缺 CONVERSATION_ID（最隐蔽）
+
+**现象**：所有问答返回「当前规划器暂不可用」，`fallback: true`，但 `/ai/chat` 普通对话正常。
+
+**真正异常**（被 `catch (RuntimeException)` 吞掉，必须加日志才看得到）：
+
+```
+IllegalArgumentException: conversationId cannot be null
+```
+
+**根因**：`ReactAgentService.routedPrompt()` 没传 ChatMemory 的会话 ID，
+而 `ChatController` 是传了的（`.advisors(a -> a.param(CONVERSATION_ID, conversationId))`）。
+
+**修法**：`routedPrompt(decision, conversationId)` 加 `.advisors(...)`，
+并让 `conversationId` 透传进 `callModel` / `callModelStream`。
+
+---
+
+## 七、运维速查（补充）
+
+### 改代码后的正确姿势
+
+```bash
+# 只改配置/环境变量 → 不重建
+docker compose -f docker-compose.lite.yml up -d --no-deps app
+
+# 改了 Java 代码 → 必须重建（约 1 分钟，Maven 缓存命中）
+docker compose -f docker-compose.lite.yml build app
+docker compose -f docker-compose.lite.yml up -d --no-deps app
+```
+
+### 三个容易再踩的坑
+
+1. **旧 FAILED 的导入任务无法重新认领** —— `processQueuedJob` 只接受 `PENDING`/`RETRY`：
+   ```sql
+   UPDATE ingestion_job SET status='PENDING', error_message=NULL;
+   ```
+2. **Checkstyle 有 500 行文件上限** —— 改大文件前先 `wc -l`，超了构建直接失败。
+3. **不要用 `docker compose run` 做临时验证** —— 超时会留下孤儿容器占内存。
+
+### 当前实测基线
+
+| 项 | 值 |
+|---|---|
+| 内存 | app 366M + mysql 166M + web 3.6M = **536 MiB** |
+| 首页响应 | ~67ms |
+| 语料快照 | 2.9M（`chat-pdf.json`） |
+| 演示 API Key | 见 `.env` 的 `APP_BOOTSTRAP_API_KEY`，2026-11-29 到期 |

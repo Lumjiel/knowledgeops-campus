@@ -29,6 +29,8 @@ services:
       # 种子语料：容器内路径（demo-data 只读挂载），详见 config/SeedDataRunner.java
       - APP_SEED_ENABLED=true
       - APP_SEED_SOURCEDIR=/data/seed
+      # JVM 堆上限：演示单用户场景 768m 堆足够，实测 RSS 可压到 1G 内
+      - JAVA_OPTS=-Xms256m -Xmx768m
     volumes:
       - vector-data:/data/vector-store
       - ./demo-data:/data/seed:ro
@@ -40,6 +42,12 @@ services:
 
   mysql:
     image: mysql:8.0
+    # 轻量化：单用户演示负载，关掉性能_schema、压小缓冲池，空载内存 ~300MB
+    command:
+      - --performance-schema=off
+      - --innodb-buffer-pool-size=64M
+      - --max-connections=30
+      - --skip-name-resolve
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
       - MYSQL_DATABASE=knowledgeops_agent
@@ -53,7 +61,7 @@ services:
       retries: 12
       start_period: 30s
     # 坑 2 之外的安全底线：不映射端口到宿主机，只留在容器内网
-    mem_limit: 768m
+    mem_limit: 512m
 
   web:
     build: ./frontend

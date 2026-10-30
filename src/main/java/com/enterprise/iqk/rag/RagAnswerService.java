@@ -3,7 +3,11 @@ package com.enterprise.iqk.rag;
 import com.enterprise.iqk.config.properties.RagProperties;
 import com.enterprise.iqk.constants.SystemConstants;
 import com.enterprise.iqk.llm.ModelRouter;
+import com.enterprise.iqk.memory.MemoryItemRecord;
+import com.enterprise.iqk.memory.MemoryService;
+import com.enterprise.iqk.memory.SlotExtractor;
 import com.enterprise.iqk.retrieval.RerankPipeline;
+import com.enterprise.iqk.security.AuthIdentity;
 import com.enterprise.iqk.security.TenantContext;
 import com.enterprise.iqk.service.TenantCostService;
 import io.micrometer.core.instrument.Counter;
@@ -17,6 +21,7 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -35,6 +40,8 @@ public class RagAnswerService {
     private final MeterRegistry meterRegistry;
     private final TenantCostService tenantCostService;
     private final RerankPipeline rerankPipeline;
+    private final MemoryService memoryService;
+    private final SlotExtractor slotExtractor;
 
     public RagResult answer(String prompt, String tenantId, String chatId, String conversationId, String modelProfile) {
         Timer.Sample pipelineSample = Timer.start(meterRegistry);
@@ -42,6 +49,8 @@ public class RagAnswerService {
 
         try {
             String normalizedTenantId = TenantContext.normalize(tenantId);
+            String memoryUserId = currentUserId(chatId);
+            String knownInfo = buildKnownInfo(normalizedTenantId, memoryUserId);
             String filterExpression = "tenant_id == \"" + escapeFilterValue(normalizedTenantId)
                     + "\" && chat_id == \"" + escapeFilterValue(chatId) + "\"";
             SearchRequest request = SearchRequest.builder()
@@ -54,6 +63,7 @@ public class RagAnswerService {
             List<Document> retrieved = similaritySearchWithMetrics(request);
             if (retrieved == null || retrieved.isEmpty()) {
                 pipelineOutcome = "empty";
+                persistConversationMemory(normalizedTenantId, memoryUserId, chatId, prompt);
                 return RagResult.builder()
                         .answer("没有在当前知识库中检索到可用内容。")
                         .citations(List.of())
@@ -73,7 +83,7 @@ public class RagAnswerService {
             String answer = chatClient.prompt()
                     .options(ChatOptions.builder().model(decision.model())
                             .temperature(ragProperties.getTemperature()).build())
-                    .system(SystemConstants.RAG_ANSWER_SYSTEM)
+                    .system(SystemConstants.RAG_ANSWER_SYSTEM + knownInfo)
                     .user("用户问题:%n%s%n%n上下文:%n%s%n".formatted(prompt, context))
                 .advisors(a -> a.param(CONVERSATION_ID, conversationId))
                     .call()
@@ -94,6 +104,7 @@ public class RagAnswerService {
             String answerWithFooter = answer + formatCitationFooter(citations);
 
             pipelineOutcome = "success";
+            persistConversationMemory(normalizedTenantId, memoryUserId, chatId, prompt);
             return RagResult.builder()
                     .answer(answerWithFooter)
                     .citations(citations)
@@ -231,6 +242,100 @@ public class RagAnswerService {
         trace.put("coarseReranker", ragProperties.getReranker());
         trace.put("fineReranker", ragProperties.getFineReranker());
         return trace;
+    }
+
+    // ── 三层记忆接线（spec-C2/C3/C4） ─────────────────────────────
+
+    /**
+     * userId 取 JWT 身份（AuthIdentity principal）；演示模式（安全关闭）无身份，
+     * 退化为会话级键 chat:{chatId}，不新造身份体系。
+     */
+    private String currentUserId(String chatId) {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof AuthIdentity identity
+                && StringUtils.hasText(identity.getPrincipal())) {
+            return identity.getPrincipal();
+        }
+        return "chat:" + chatId;
+    }
+
+    /**
+     * 读取时机（spec-C3/C4）：long 记忆最新一条槽位 + 高置信 fact（≥0.8），
+     * 空槽位不拼，避免污染 prompt。
+     */
+    private String buildKnownInfo(String tenantId, String userId) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            List<MemoryItemRecord> longMems = memoryService.queryLongMemory(tenantId, userId, 1);
+            if (!longMems.isEmpty()) {
+                SlotExtractor.Slots slots = slotExtractor.parse(longMems.get(0).getContent());
+                String described = slotExtractor.describe(slots);
+                if (!described.isEmpty()) {
+                    sb.append("\n\n【已知信息】").append(described);
+                }
+            }
+            List<MemoryItemRecord> facts = memoryService.queryFactMemory(tenantId, 0.8, 5);
+            if (!facts.isEmpty()) {
+                sb.append("\n\n【常见问题结论】");
+                for (MemoryItemRecord fact : facts) {
+                    sb.append("\n- ").append(fact.getContent());
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            // 记忆读失败不阻断问答主链路
+            return "";
+        }
+    }
+
+    /**
+     * 写入时机（spec-C2/C3）：每轮结束抽槽位 → 与已有 long 合并（新覆盖旧、topics 并集）；
+     * 每轮写一条 short；short 超过 6 条时把最旧的压成模板摘要（不用 LLM）。
+     * fact 不在此自动写入（防污染，spec-C4）。
+     */
+    private void persistConversationMemory(String tenantId, String userId, String chatId, String prompt) {
+        try {
+            SlotExtractor.Slots incoming = slotExtractor.extract(prompt);
+            if (!slotExtractor.isEmpty(incoming)) {
+                List<MemoryItemRecord> longMems = memoryService.queryLongMemory(tenantId, userId, 1);
+                SlotExtractor.Slots existing = longMems.isEmpty()
+                        ? null
+                        : slotExtractor.parse(longMems.get(0).getContent());
+                SlotExtractor.Slots merged = slotExtractor.merge(existing, incoming);
+                String json = slotExtractor.toJson(merged);
+                if (StringUtils.hasText(json)) {
+                    memoryService.saveLongMemory(tenantId, userId, json, "dialog:" + chatId);
+                }
+            }
+            memoryService.saveShortMemory(tenantId, userId, titleOf(prompt), "dialog:" + chatId);
+
+            List<MemoryItemRecord> shorts = memoryService.queryShortMemory(tenantId, userId, 8);
+            if (shorts.size() > 6) {
+                List<MemoryItemRecord> oldest = shorts.subList(6, shorts.size());
+                String titles = oldest.stream()
+                        .limit(3)
+                        .map(MemoryItemRecord::getContent)
+                        .collect(java.util.stream.Collectors.joining("；"));
+                SlotExtractor.Slots current = slotExtractor.parse(
+                        memoryService.queryLongMemory(tenantId, userId, 1).stream()
+                                .findFirst()
+                                .map(MemoryItemRecord::getContent)
+                                .orElse(null));
+                String summary = "用户已确认：" + slotExtractor.describe(current)
+                        + "；此前问过：" + titles;
+                for (MemoryItemRecord item : oldest) {
+                    memoryService.deleteMemory(tenantId, item.getMemoryId());
+                }
+                memoryService.saveShortMemory(tenantId, userId, summary, "summary");
+            }
+        } catch (Exception e) {
+            // 记忆写失败不阻断问答主链路
+        }
+    }
+
+    private String titleOf(String prompt) {
+        String clean = emptyIfBlank(prompt).replaceAll("\\s+", " ").trim();
+        return clean.length() <= 30 ? clean : clean.substring(0, 30) + "...";
     }
 
     private String emptyIfBlank(String value) {

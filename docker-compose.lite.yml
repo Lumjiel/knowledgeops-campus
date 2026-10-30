@@ -26,6 +26,22 @@ services:
       - DB_PASSWORD=${MYSQL_PASSWORD}
       # prod profile 必填：CORS 白名单
       - APP_CORS_ALLOWED_ORIGINS=${APP_CORS_ALLOWED_ORIGINS:-http://localhost}
+      # prod profile 必填：AppStartupValidator 要求 jwt-secret 非空且非默认值
+      - APP_JWT_SECRET=${APP_JWT_SECRET}
+      # 演示用：启动时自动provision一个 ADMIN API Key（前端页面输这个 key 就能问答）
+      - APP_BOOTSTRAP_API_KEY=${APP_BOOTSTRAP_API_KEY}
+      # prod profile 拒绝 rabbit guest/guest；本部署不用 MQ，只需给非 guest 值
+      - RABBITMQ_USERNAME=kops-local
+      - RABBITMQ_PASSWORD=kops-local-not-used
+      # lite 部署砍掉了 redis / rabbitmq / tempo：
+      # 不关这两个健康检查，/actuator/health 会一直 DOWN，web 永远起不来
+      - MANAGEMENT_HEALTH_REDIS_ENABLED=false
+      - MANAGEMENT_HEALTH_RABBIT_ENABLED=false
+      # 关掉 OTLP 链路导出，否则每秒刷 "Failed to export spans" 日志
+      - MANAGEMENT_TRACING_ENABLED=false
+      - MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always
+      # 演示环境关掉成本治理（避免预算/用量写入失败导致 planner 兜底）
+      - APP_COST_GOVERNANCE_ENABLED=false
       # 种子语料：容器内路径（demo-data 只读挂载），详见 config/SeedDataRunner.java
       - APP_SEED_ENABLED=true
       - APP_SEED_SOURCEDIR=/data/seed

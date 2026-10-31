@@ -8,7 +8,7 @@
 标注集构造：从 shared-corpus 均匀抽样 chunk，LLM 反向生成学生视角问题，
 记录 expected_chunk_index（LLM 生成标注，非人工精标，结论看相对趋势）。
 """
-import argparse, json, os, urllib.request
+import argparse, json, os, re, urllib.request
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--annotations", default="eval/annotations-handbook-v1.json")
@@ -29,9 +29,15 @@ for a in anns:
         headers={"Authorization": "Bearer " + jwt, "Content-Type": "application/json"})
     d = json.load(urllib.request.urlopen(req, timeout=60))
     rank = None
+    expected_text = a.get("expected_text", "")
     for doc in d.get("documents") or []:
         md = doc.get("metadata") or {}
         if md.get("chunk_index") == a["expected_chunk_index"]:
+            rank = doc["rank"]
+            break
+        # 跨切法匹配：不同 chunk 粒度下编号会变，用文本包含关系判定
+        content = re.sub(r"\s+", "", doc.get("content") or "")
+        if expected_text and content and (content in expected_text or expected_text[:200] in content):
             rank = doc["rank"]
             break
     if rank and rank <= args.hitk:

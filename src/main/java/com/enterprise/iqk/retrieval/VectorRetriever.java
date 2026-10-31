@@ -25,7 +25,8 @@ public class VectorRetriever {
         String outcome = "error";
         try {
             String filter = "tenant_id == \"" + escapeFilter(tenantId)
-                    + "\" && chat_id == \"" + escapeFilter(chatId) + "\"";
+                    + "\" && (chat_id == \"" + escapeFilter(chatId)
+                    + "\" || chat_id == \"" + escapeFilter(ragProperties.getSharedCorpusChatId()) + "\")";
             SearchRequest request = SearchRequest.builder()
                     .query(query)
                     .topK(ragProperties.getRetrieveTopK())

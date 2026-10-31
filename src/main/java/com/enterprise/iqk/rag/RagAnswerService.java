@@ -52,7 +52,8 @@ public class RagAnswerService {
             String memoryUserId = currentUserId(chatId);
             String knownInfo = buildKnownInfo(normalizedTenantId, memoryUserId);
             String filterExpression = "tenant_id == \"" + escapeFilterValue(normalizedTenantId)
-                    + "\" && chat_id == \"" + escapeFilterValue(chatId) + "\"";
+                    + "\" && (chat_id == \"" + escapeFilterValue(chatId)
+                    + "\" || chat_id == \"" + escapeFilterValue(ragProperties.getSharedCorpusChatId()) + "\")";
             SearchRequest request = SearchRequest.builder()
                     .query(prompt)
                     .topK(ragProperties.getRetrievalTopN())

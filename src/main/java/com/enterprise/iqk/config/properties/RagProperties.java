@@ -18,6 +18,7 @@ public class RagProperties {
     private int retrievalTopN = 50;              // 召回条数（管线一级）
     private int coarseTopK = 20;                 // 粗排保留条数（管线二级）
     private long rerankBudgetMs = 800;           // 精排延迟预算，超时降级
+    private String sharedCorpusChatId = "shared-corpus"; // 全局共享语料作用域，检索与会话级文档合并召回
 
     @Data
     public static class Split {

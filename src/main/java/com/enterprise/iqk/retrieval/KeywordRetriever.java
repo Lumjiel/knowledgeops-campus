@@ -1,5 +1,6 @@
 package com.enterprise.iqk.retrieval;
 
+import com.enterprise.iqk.config.properties.RagProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class KeywordRetriever {
     private final VectorStore vectorStore;
     private final MeterRegistry meterRegistry;
     private final Tokenizer tokenizer;
+    private final RagProperties ragProperties;
 
     public List<ScoredDocument> retrieve(String query, String tenantId, String chatId, int topK) {
         Timer.Sample sample = Timer.start(meterRegistry);
@@ -31,7 +33,8 @@ public class KeywordRetriever {
         try {
             // Use vector store as document source, then re-rank by keyword overlap
             String filter = "tenant_id == \"" + escapeFilter(tenantId)
-                    + "\" && chat_id == \"" + escapeFilter(chatId) + "\"";
+                    + "\" && (chat_id == \"" + escapeFilter(chatId)
+                    + "\" || chat_id == \"" + escapeFilter(ragProperties.getSharedCorpusChatId()) + "\")";
             List<Document> docs = vectorStore.similaritySearch(
                     org.springframework.ai.vectorstore.SearchRequest.builder()
                             .query(query)

@@ -18,7 +18,7 @@ args = ap.parse_args()
 
 base = os.environ.get("BASE", "http://127.0.0.1:8080")
 jwt = os.environ.get("JWT", "")
-anns = json.load(open(args.par_annotations if False else args.annotations))
+anns = json.load(open(args.annotations))
 
 hits = 0
 mrr = 0.0

@@ -171,7 +171,7 @@ public class RagAnswerService {
             sb.append("[").append(i + 1).append("] ")
                     .append(citationText(d))
                     .append("\n")
-                    .append(d.getFormattedContent())
+                    .append(d.getText())
                     .append("\n\n");
         }
         return sb.toString();
@@ -215,7 +215,7 @@ public class RagAnswerService {
                 chunkIndex = 0;
             }
         }
-        String snippet = emptyIfBlank(d.getFormattedContent()).replaceAll("\\s+", " ").trim();
+        String snippet = emptyIfBlank(d.getText()).replaceAll("\\s+", " ").trim();
         if (snippet.length() > 180) {
             snippet = snippet.substring(0, 180) + "...";
         }
@@ -223,7 +223,7 @@ public class RagAnswerService {
     }
 
     private String evidenceText(Document d) {
-        String raw = emptyIfBlank(d.getFormattedContent()).replaceAll("\\s+", " ").trim();
+        String raw = emptyIfBlank(d.getText()).replaceAll("\\s+", " ").trim();
         if (raw.length() <= 180) {
             return raw;
         }

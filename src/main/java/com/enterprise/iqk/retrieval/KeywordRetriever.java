@@ -53,7 +53,7 @@ public class KeywordRetriever {
             for (int i = 0; i < docs.size(); i++) {
                 Document d = docs.get(i);
                 Set<String> titleTokens = tokenize(metaStr(d, "file_name", ""));
-                Set<String> contentTokens = tokenize(d.getFormattedContent());
+                Set<String> contentTokens = tokenize(d.getText());
 
                 double titleOverlap = overlapScore(queryTokens, titleTokens);
                 double contentOverlap = overlapScore(queryTokens, contentTokens);
@@ -65,7 +65,7 @@ public class KeywordRetriever {
                             .sourceType("keyword")
                             .title(metaStr(d, "file_name", "unknown"))
                             .chunkId("chunk-" + metaStr(d, "chunk_index", String.valueOf(i)))
-                            .content(d.getFormattedContent())
+                            .content(d.getText())
                             .retrievalScore(score)
                             .metadata(d.getMetadata())
                             .build());

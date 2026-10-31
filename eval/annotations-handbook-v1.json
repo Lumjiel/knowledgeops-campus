@@ -1,0 +1,142 @@
+[
+ {
+  "question": "学校发现学生在校内出现哪两种情况时，可以依法采取或协助有关部门采取必要措施？",
+  "expected_chunk_index": 5,
+  "expected_page": 6
+ },
+ {
+  "question": "违纪行为有哪些情形会被从重或加重处分？",
+  "expected_chunk_index": 10,
+  "expected_page": 11
+ },
+ {
+  "question": "非法占有、盗窃、诈骗、抢夺、敲诈勒索等行为尚未构成犯罪时，学校会给予什么处分？",
+  "expected_chunk_index": 15,
+  "expected_page": 16
+ },
+ {
+  "question": "如果我擅自离校累计七天，会受到什么处分？",
+  "expected_chunk_index": 20,
+  "expected_page": 21
+ },
+ {
+  "question": "学生申诉处理委员会对决定予以受理的申诉，应在自接到申诉书之日起多少个工作日内作出复查决定书？",
+  "expected_chunk_index": 25,
+  "expected_page": 26
+ },
+ {
+  "question": "休学或保留学籍的时间是否计入具有学籍时间？如果计入，具有学籍时间最多不得超过专业规定学制的多少倍？",
+  "expected_chunk_index": 30,
+  "expected_page": 31
+ },
+ {
+  "question": "如果我正考成绩为76分，对应的绩点是多少？",
+  "expected_chunk_index": 35,
+  "expected_page": 36
+ },
+ {
+  "question": "毕业班学生素质拓展学分未达毕业学分要求，会被给予什么处理？",
+  "expected_chunk_index": 40,
+  "expected_page": 41
+ },
+ {
+  "question": "开除学籍或未满1学年退学的学生会获得哪种证明？",
+  "expected_chunk_index": 45,
+  "expected_page": 46
+ },
+ {
+  "question": "我毕业后如果自入学计起总年限不超过八年，能否按学校课程重修规定申请重修成绩低于75分或中等的相关理论课程，并在考核合格后申请授予学士学位？",
+  "expected_chunk_index": 50,
+  "expected_page": 51
+ },
+ {
+  "question": "本办法由哪个部门负责解释？",
+  "expected_chunk_index": 55,
+  "expected_page": 56
+ },
+ {
+  "question": "实践类课程可以申请缓考吗？",
+  "expected_chunk_index": 60,
+  "expected_page": 61
+ },
+ {
+  "question": "哪些学生不能申请转专业？",
+  "expected_chunk_index": 65,
+  "expected_page": 66
+ },
+ {
+  "question": "南京工程学院考试违规处理办法适用于哪些学生？",
+  "expected_chunk_index": 70,
+  "expected_page": 71
+ },
+ {
+  "question": "火车票优惠卡由哪两个部门监制？",
+  "expected_chunk_index": 75,
+  "expected_page": 76
+ },
+ {
+  "question": "每学期单位学分成绩的计算公式是什么，五级记分课程的各等级分别折算成多少分？",
+  "expected_chunk_index": 80,
+  "expected_page": 81
+ },
+ {
+  "question": "全优奖学金每学年评定一次吗，毕业班是否参加评定？",
+  "expected_chunk_index": 85,
+  "expected_page": 86
+ },
+ {
+  "question": "三好学生、三好学生标兵、优秀学生干部在什么情况下会被取消荣誉称号？",
+  "expected_chunk_index": 90,
+  "expected_page": 91
+ },
+ {
+  "question": "学生宿舍的统一安排和具体管理分别由哪些单位负责？",
+  "expected_chunk_index": 95,
+  "expected_page": 96
+ },
+ {
+  "question": "“文明宿舍”的评选比例占公寓宿舍总数的百分之几？",
+  "expected_chunk_index": 100,
+  "expected_page": 101
+ },
+ {
+  "question": "勤工助学先进个人能在综合素质测评中加分吗？",
+  "expected_chunk_index": 111,
+  "expected_page": 111
+ },
+ {
+  "question": "“优秀团干部”的评选流程具体包括哪些环节？",
+  "expected_chunk_index": 116,
+  "expected_page": 116
+ },
+ {
+  "question": "参加校级以上科技作品竞赛或学科知识竞赛，可以申请学生科技基金资助吗？",
+  "expected_chunk_index": 121,
+  "expected_page": 121
+ },
+ {
+  "question": "推优的条件是什么？",
+  "expected_chunk_index": 126,
+  "expected_page": 126
+ },
+ {
+  "question": "学生社团的定义是什么？",
+  "expected_chunk_index": 131,
+  "expected_page": 131
+ },
+ {
+  "question": "一名学生社团指导教师原则上最多可以指导几个学生社团？",
+  "expected_chunk_index": 136,
+  "expected_page": 136
+ },
+ {
+  "question": "学生进入南京工程学院图书馆需要凭什么证件并通过门禁系统验证？",
+  "expected_chunk_index": 141,
+  "expected_page": 141
+ },
+ {
+  "question": "校园卡遗失后，应通过哪些方式办理挂失手续？",
+  "expected_chunk_index": 146,
+  "expected_page": 146
+ }
+]

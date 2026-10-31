@@ -43,7 +43,7 @@ public class VectorRetriever {
                         .sourceType("vector")
                         .title(metaStr(d, "file_name", "unknown"))
                         .chunkId("chunk-" + metaStr(d, "chunk_index", String.valueOf(i)))
-                        .content(d.getFormattedContent())
+                        .content(d.getText())
                         .retrievalScore(extractScore(d, i))
                         .metadata(d.getMetadata())
                         .build());

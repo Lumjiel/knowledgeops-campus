@@ -2,67 +2,14 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand-block">
-        <p class="eyebrow">校园规章问答</p>
-        <h1>校园规章问答助手</h1>
-        <p class="brand-sub">南京工程学院 · 学生手册 2023 版</p>
+        <h1>有章</h1>
+        <p class="brand-sub">有章可循，有据可查 · 南京工程学院学生手册 2023 版</p>
       </div>
 
-      <button class="new-chat-btn" type="button" @click="createAndSwitchSession">+ 新建会话</button>
-
-      <div class="console-nav" role="tablist" aria-label="Console views">
-        <button
-          type="button"
-          :class="{ active: activeView === 'chat' }"
-          @click="activateView('chat')"
-        >
-          对话
-        </button>
-        <button
-          type="button"
-          :class="{ active: activeView === 'evaluation' }"
-          @click="activateView('evaluation')"
-        >
-          检索评测
-        </button>
-      </div>
+      <button class="new-chat-btn" type="button" @click="createAndSwitchSession">＋ 新建会话</button>
 
       <section class="session-tools">
         <el-input v-model="sessionSearch" size="small" placeholder="搜索会话标题或 ID" clearable />
-        <div class="tool-row">
-          <el-select v-model="workspaceFilter" size="small" class="tool-select">
-            <el-option label="全部工作区" value="all" />
-            <el-option
-              v-for="workspace in workspaceOptions"
-              :key="workspace"
-              :label="workspace"
-              :value="workspace"
-            />
-          </el-select>
-          <el-switch
-            v-model="showArchivedSessions"
-            size="small"
-            inline-prompt
-            active-text="含归档"
-            inactive-text="隐藏归档"
-          />
-        </div>
-        <div class="cloud-row">
-          <el-button
-            size="small"
-            :loading="cloudSyncing"
-            :disabled="!canUseRemoteSync"
-            @click="loadSessionsFromCloud"
-            >云端拉取</el-button
-          >
-          <el-button
-            size="small"
-            type="primary"
-            :loading="cloudSyncing"
-            :disabled="!canUseRemoteSync"
-            @click="syncActiveSessionToCloud"
-            >保存到云端</el-button
-          >
-        </div>
       </section>
 
       <section class="session-panel">
@@ -112,100 +59,64 @@
         </div>
       </section>
 
-      <section class="branch-panel">
-        <div class="section-head">
-          <p class="section-label">分支树</p>
-          <div class="branch-head-actions">
-            <span class="section-meta">{{ activeSession?.branches.length ?? 0 }} 条</span>
-            <button type="button" @click="forkFromCurrent">从当前分叉</button>
-            <button
-              type="button"
-              :disabled="!activeBranch?.parentBranchId"
-              @click="compareWithParent"
-            >
-              对比父分支
-            </button>
-            <button
-              type="button"
-              :disabled="!activeBranch?.parentBranchId"
-              @click="mergeIntoParent"
-            >
-              合并到父分支
-            </button>
-          </div>
-        </div>
-        <div class="branch-list">
-          <div
-            v-for="node in branchTreeItems"
-            :key="node.branch.id"
-            class="branch-item"
-            :class="{ active: node.branch.id === activeBranch?.id }"
-            :style="{ paddingLeft: `${12 + node.depth * 14}px` }"
-            role="button"
-            tabindex="0"
-            @click="switchBranch(node.branch.id)"
-            @keydown.enter.prevent="switchBranch(node.branch.id)"
-          >
-            <span class="branch-line" :style="{ opacity: node.depth > 0 ? 1 : 0 }"></span>
-            <div class="branch-content">
-              <p>{{ node.branch.title }}</p>
-              <small>{{ formatTime(node.branch.updatedAt) }}</small>
+      <el-collapse class="branch-collapse">
+        <el-collapse-item name="branch">
+          <template #title>
+            <span class="branch-collapse-title">分支树（{{ activeSession?.branches.length ?? 0 }} 条）</span>
+          </template>
+          <section class="branch-panel">
+            <div class="branch-head-actions">
+              <el-button size="small" @click="forkFromCurrent">从当前分叉</el-button>
+              <el-button
+                size="small"
+                :disabled="!activeBranch?.parentBranchId"
+                @click="compareWithParent"
+              >
+                对比父分支
+              </el-button>
+              <el-button
+                size="small"
+                :disabled="!activeBranch?.parentBranchId"
+                @click="mergeIntoParent"
+              >
+                合并到父分支
+              </el-button>
             </div>
-          </div>
-          <div v-if="branchTreeItems.length === 0" class="session-empty">暂无分支</div>
-        </div>
-      </section>
+            <div class="branch-list">
+              <div
+                v-for="node in branchTreeItems"
+                :key="node.branch.id"
+                class="branch-item"
+                :class="{ active: node.branch.id === activeBranch?.id }"
+                :style="{ paddingLeft: `${12 + node.depth * 14}px` }"
+                role="button"
+                tabindex="0"
+                @click="switchBranch(node.branch.id)"
+                @keydown.enter.prevent="switchBranch(node.branch.id)"
+              >
+                <span class="branch-line" :style="{ opacity: node.depth > 0 ? 1 : 0 }"></span>
+                <div class="branch-content">
+                  <p>{{ node.branch.title }}</p>
+                  <small>{{ formatTime(node.branch.updatedAt) }}</small>
+                </div>
+              </div>
+              <div v-if="branchTreeItems.length === 0" class="session-empty">暂无分支</div>
+            </div>
+          </section>
+        </el-collapse-item>
+      </el-collapse>
 
-      <details class="ops-panel" open>
-        <summary><span>鉴权与模型</span></summary>
-        <div class="ops-body">
-          <el-form label-position="top" size="small">
-            <el-form-item label="API Key">
-              <el-input
-                v-model="apiKeyInput"
-                placeholder="输入 API Key（生产建议短时使用）"
-                show-password
-                type="password"
-              />
-            </el-form-item>
-            <el-form-item label="Tenant (可选)">
-              <el-input v-model="tenantInput" placeholder="public" />
-            </el-form-item>
-            <el-form-item label="Model Profile">
-              <el-segmented
-                v-model="modelProfile"
-                :options="[
-                  'economy',
-                  'balanced',
-                  'quality',
-                  'ab_auto',
-                  'quality_first',
-                  'cost_first',
-                ]"
-                class="full-width"
-              />
-            </el-form-item>
-            <el-form-item label="响应模式">
-              <el-switch v-model="streaming" inline-prompt active-text="SSE" inactive-text="JSON" />
-            </el-form-item>
-          </el-form>
-          <div class="auth-buttons">
-            <el-button type="primary" :loading="authLoading" @click="handleLogin"
-              >换取 JWT</el-button
-            >
-            <el-button :disabled="!refreshToken" :loading="refreshing" @click="handleRefresh"
-              >刷新</el-button
-            >
-            <el-button @click="clearAuth">清空</el-button>
-          </div>
-        </div>
-      </details>
+      <footer class="sidebar-foot">
+        <button type="button" class="eval-entry" @click="activateView(activeView === 'chat' ? 'evaluation' : 'chat')">
+          {{ activeView === 'chat' ? '评测模式 · 数据看板' : '← 返回对话' }}
+        </button>
+      </footer>
     </aside>
 
     <main class="workspace">
       <header class="workspace-head">
         <div v-if="activeView === 'chat'">
-          <p class="workspace-kicker">Active Session</p>
+          <p class="workspace-kicker">当前会话</p>
           <h2>{{ activeSession?.title || '新会话' }}</h2>
           <p class="workspace-sub">
             {{ modelProfile }} · {{ streaming ? 'SSE 流式' : 'JSON 单次' }}
@@ -219,23 +130,6 @@
           </p>
         </div>
         <div v-if="activeView === 'chat'" class="head-actions">
-          <el-select v-model="activeWorkspaceId" size="small" class="workspace-select">
-            <el-option
-              v-for="workspace in workspaceOptions"
-              :key="workspace"
-              :label="workspace"
-              :value="workspace"
-            />
-          </el-select>
-          <el-input
-            v-model="workspaceDraft"
-            size="small"
-            class="workspace-input"
-            placeholder="新工作区"
-            @keydown.enter.prevent="createWorkspace"
-          />
-          <el-button size="small" @click="createWorkspace">创建并切换</el-button>
-          <el-switch v-model="darkMode" inline-prompt active-text="Dark" inactive-text="Light" />
           <el-tag :type="streamStatusTagType" effect="plain">{{ streamStatusLabel }}</el-tag>
           <span class="stream-detail">{{ streamStatusDetail }}</span>
           <span v-if="costSummary" class="stream-detail"
@@ -243,7 +137,14 @@
               costSummary.monthlyBudgetUsd.toFixed(4)
             }}</span
           >
-          <el-button size="small" @click="clearConversation">清空会话</el-button>
+          <el-switch
+            v-model="darkMode"
+            size="small"
+            inline-prompt
+            active-text="深"
+            inactive-text="浅"
+          />
+          <el-button size="small" text @click="settingsOpen = true">设置</el-button>
         </div>
         <div v-else class="head-actions">
           <el-button size="small" :loading="evalLoading" @click="loadEvalDatasets">刷新</el-button>
@@ -294,18 +195,8 @@
 
           <template v-else>
             <div v-if="isEmptyConversation" class="welcome-block">
-              <h3>校园规章问答助手</h3>
-              <p>问一句，给你条款依据</p>
-              <div class="welcome-prompts">
-                <button
-                  v-for="sample in quickPrompts"
-                  :key="sample"
-                  type="button"
-                  @click="sendQuickPrompt(sample)"
-                >
-                  {{ sample }}
-                </button>
-              </div>
+              <h3>问一句，给你条款依据</h3>
+              <p>有章可循，有据可查 —— 所有回答均引用《学生手册》原文并标注页码</p>
             </div>
 
             <div class="virtual-spacer" :style="{ height: `${virtualTopSpacer}px` }"></div>
@@ -318,10 +209,10 @@
               class="message-row"
               :class="[entry.item.role, entry.item.state || 'done']"
             >
-              <div class="avatar">{{ entry.item.role === 'user' ? 'U' : 'AI' }}</div>
+              <div class="avatar">{{ entry.item.role === 'user' ? '我' : '章' }}</div>
               <div class="bubble-wrap">
                 <div class="bubble-meta">
-                  <span>{{ entry.item.role === 'user' ? 'You' : 'Assistant' }}</span>
+                  <span>{{ entry.item.role === 'user' ? '你' : '有章' }}</span>
                   <span>{{ formatTime(entry.item.createdAt) }}</span>
                   <span v-if="entry.item.state === 'streaming'" class="status-dot">生成中</span>
                   <span v-if="entry.item.state === 'pending'" class="status-dot">思考中</span>
@@ -414,13 +305,13 @@
                           @click="expandedTraceOpen = !expandedTraceOpen"
                         >
                           <template v-if="entry.item.retrievalTrace">
-                            🔍 召回 {{ entry.item.retrievalTrace.recall }} · 粗排
-                            {{ entry.item.retrievalTrace.coarse }} · 精排
-                            {{ entry.item.retrievalTrace.fine }} · 重排
+                            检索链路 · 召回 {{ entry.item.retrievalTrace.recall }} → 粗排
+                            {{ entry.item.retrievalTrace.coarse }} → 精排
+                            {{ entry.item.retrievalTrace.fine }} ·
                             {{ entry.item.retrievalTrace.coarseMs +
-                              entry.item.retrievalTrace.fineMs }}ms
+                              entry.item.retrievalTrace.fineMs }}ms ▾
                           </template>
-                          <template v-else>🔍 召回 — · 粗排 — · 精排 — · 重排 —ms ▾</template>
+                          <template v-else>检索链路 ▾</template>
                         </button>
                         <div v-if="expandedTraceOpen" class="retrieval-trace-detail">
                           <p v-if="!entry.item.retrievalTrace" class="retrieval-trace-note">
@@ -637,38 +528,37 @@
 
         <footer class="composer-shell">
           <div class="composer">
+            <div class="quick-prompts">
+              <button
+                v-for="sample in quickPrompts"
+                :key="sample"
+                type="button"
+                @click="prompt = sample"
+              >
+                {{ sample }}
+              </button>
+            </div>
             <el-input
               v-model="prompt"
               class="composer-input"
               type="textarea"
-              :rows="3"
+              :rows="2"
               resize="none"
               placeholder="输入问题，Enter 发送，Shift + Enter 换行"
               @keydown.enter.exact.prevent="send"
             />
-            <div class="composer-footer">
-              <div class="quick-prompts">
-                <button
-                  v-for="sample in quickPrompts"
-                  :key="sample"
-                  type="button"
-                  @click="prompt = sample"
-                >
-                  {{ sample }}
-                </button>
-              </div>
-              <div class="composer-actions">
-                <el-button :disabled="!sending" @click="stopGenerating">停止</el-button>
-                <el-button
-                  type="primary"
-                  :loading="sending"
-                  :disabled="!prompt.trim() || sending"
-                  @click="send"
-                  >发送</el-button
-                >
-              </div>
+            <div class="composer-actions">
+              <el-button :disabled="!sending" @click="stopGenerating">停止</el-button>
+              <el-button
+                type="primary"
+                :loading="sending"
+                :disabled="!prompt.trim() || sending"
+                @click="send"
+                >发送</el-button
+              >
             </div>
           </div>
+          <p class="composer-disclaimer">回答由 AI 生成，以《学生手册》原文及学校最新通知为准</p>
         </footer>
       </template>
 
@@ -695,26 +585,32 @@
             <div v-if="!evalDatasets.length" class="session-empty">暂无评测集</div>
           </div>
 
-          <div class="eval-create-panel">
-            <p class="section-label">创建评测集</p>
-            <el-input v-model="evalDatasetName" size="small" placeholder="数据集名称" />
-            <el-input v-model="evalDatasetDescription" size="small" placeholder="描述" />
-            <el-input
-              v-model="evalDatasetJson"
-              class="eval-json-input"
-              type="textarea"
-              :rows="11"
-              resize="none"
-              spellcheck="false"
-            />
-            <el-button
-              type="primary"
-              :loading="evalCreating"
-              :disabled="!evalDatasetName.trim() || !evalDatasetJson.trim()"
-              @click="createEvalDatasetFromJson"
-              >创建评测集</el-button
-            >
-          </div>
+          <el-collapse class="eval-create-collapse">
+            <el-collapse-item name="create">
+              <template #title>
+                <span class="branch-collapse-title">＋ 创建评测集</span>
+              </template>
+              <div class="eval-create-panel">
+                <el-input v-model="evalDatasetName" size="small" placeholder="数据集名称" />
+                <el-input v-model="evalDatasetDescription" size="small" placeholder="描述" />
+                <el-input
+                  v-model="evalDatasetJson"
+                  class="eval-json-input"
+                  type="textarea"
+                  :rows="11"
+                  resize="none"
+                  spellcheck="false"
+                />
+                <el-button
+                  type="primary"
+                  :loading="evalCreating"
+                  :disabled="!evalDatasetName.trim() || !evalDatasetJson.trim()"
+                  @click="createEvalDatasetFromJson"
+                  >创建评测集</el-button
+                >
+              </div>
+            </el-collapse-item>
+          </el-collapse>
         </aside>
 
         <section class="eval-main-panel">
@@ -766,6 +662,116 @@
         </section>
       </section>
     </main>
+
+    <el-dialog v-model="settingsOpen" title="设置" width="480px" class="settings-dialog">
+      <div class="settings-section">
+        <p class="settings-label">鉴权与模型</p>
+        <el-form label-position="top" size="small">
+          <el-form-item label="API Key">
+            <el-input
+              v-model="apiKeyInput"
+              placeholder="输入 API Key（生产建议短时使用）"
+              show-password
+              type="password"
+            />
+          </el-form-item>
+          <el-form-item label="Tenant (可选)">
+            <el-input v-model="tenantInput" placeholder="public" />
+          </el-form-item>
+          <el-form-item label="Model Profile">
+            <el-segmented
+              v-model="modelProfile"
+              :options="[
+                'economy',
+                'balanced',
+                'quality',
+                'ab_auto',
+                'quality_first',
+                'cost_first',
+              ]"
+              class="full-width"
+            />
+          </el-form-item>
+          <el-form-item label="响应模式">
+            <el-switch v-model="streaming" inline-prompt active-text="SSE" inactive-text="JSON" />
+          </el-form-item>
+        </el-form>
+        <div class="auth-buttons">
+          <el-button type="primary" :loading="authLoading" @click="handleLogin">换取 JWT</el-button>
+          <el-button :disabled="!refreshToken" :loading="refreshing" @click="handleRefresh"
+            >刷新</el-button
+          >
+          <el-button @click="clearAuth">清空</el-button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <p class="settings-label">工作区</p>
+        <div class="workspace-manager">
+          <el-select v-model="activeWorkspaceId" size="small" class="workspace-select">
+            <el-option
+              v-for="workspace in workspaceOptions"
+              :key="workspace"
+              :label="workspace"
+              :value="workspace"
+            />
+          </el-select>
+          <el-input
+            v-model="workspaceDraft"
+            size="small"
+            class="workspace-input"
+            placeholder="新工作区"
+            @keydown.enter.prevent="createWorkspace"
+          />
+          <el-button size="small" @click="createWorkspace">创建并切换</el-button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <p class="settings-label">会话列表与同步</p>
+        <div class="workspace-manager">
+          <el-select v-model="workspaceFilter" size="small" class="tool-select">
+            <el-option label="全部工作区" value="all" />
+            <el-option
+              v-for="workspace in workspaceOptions"
+              :key="workspace"
+              :label="workspace"
+              :value="workspace"
+            />
+          </el-select>
+          <el-switch
+            v-model="showArchivedSessions"
+            size="small"
+            inline-prompt
+            active-text="含归档"
+            inactive-text="隐藏归档"
+          />
+        </div>
+        <div class="cloud-row">
+          <el-button
+            size="small"
+            :loading="cloudSyncing"
+            :disabled="!canUseRemoteSync"
+            @click="loadSessionsFromCloud"
+            >云端拉取</el-button
+          >
+          <el-button
+            size="small"
+            type="primary"
+            :loading="cloudSyncing"
+            :disabled="!canUseRemoteSync"
+            @click="syncActiveSessionToCloud"
+            >保存当前会话到云端</el-button
+          >
+        </div>
+      </div>
+      <template #footer>
+        <el-button size="small" type="danger" plain @click="clearConversation"
+          >清空当前会话</el-button
+        >
+        <el-button size="small" type="primary" @click="settingsOpen = false">完成</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1339,6 +1345,7 @@ const bootstrap = Object.keys(cached).length > 0 ? cached : legacy;
 
 const darkMode = ref(Boolean(bootstrap.darkMode));
 const activeView = ref<ConsoleView>(bootstrap.activeView === 'evaluation' ? 'evaluation' : 'chat');
+const settingsOpen = ref(false);
 const apiKeyInput = ref((bootstrap.apiKey as string | undefined) ?? '');
 const tenantInput = ref((bootstrap.tenantId as string | undefined) ?? '');
 const token = ref((bootstrap.token as string | undefined) ?? '');
@@ -4341,5 +4348,500 @@ h2 {
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* ════════════════════════════════════════════════
+   有章 · 学术风覆盖层（改版新增，位于最末以获得优先级）
+   ════════════════════════════════════════════════ */
+
+/* ── 整体骨架 ── */
+.app-shell {
+  height: 100vh;
+  grid-template-columns: 264px minmax(0, 1fr);
+  background: var(--ui-paper);
+}
+
+/* ── 侧栏 ── */
+.sidebar {
+  gap: 10px;
+  padding: 16px 14px 10px;
+  background: var(--ui-surface);
+  border-right: 1px solid var(--ui-border-soft);
+  backdrop-filter: none;
+}
+
+.brand-block h1 {
+  margin: 0;
+  font-family: var(--ui-serif);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ui-text);
+}
+
+.brand-block .brand-sub {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ui-muted);
+}
+
+.new-chat-btn {
+  height: 38px;
+  border: none;
+  border-radius: var(--ui-radius);
+  background: var(--ui-accent);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.new-chat-btn:hover {
+  filter: brightness(1.08);
+}
+
+.session-tools .el-input {
+  --el-input-bg-color: var(--ui-paper);
+}
+
+.session-panel {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.session-item {
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+
+.session-item:hover {
+  background: var(--ui-paper);
+}
+
+.session-item.active {
+  background: var(--ui-accent-soft);
+  box-shadow: none;
+}
+
+.session-item.active .session-title {
+  color: var(--ui-accent);
+  font-weight: 500;
+}
+
+.session-title {
+  font-size: 13.5px;
+}
+
+.session-meta-row {
+  font-size: 11px;
+  color: var(--ui-muted);
+}
+
+.session-actions button {
+  border: none;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.session-actions button:hover {
+  color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.session-actions button.danger:hover {
+  color: var(--ui-danger);
+}
+
+/* 分支折叠面板 */
+.branch-collapse {
+  border-top: 1px solid var(--ui-border-soft);
+  --el-collapse-border-color: transparent;
+}
+
+.branch-collapse .el-collapse-item__header {
+  background: transparent;
+  border-bottom: none;
+  font-size: 12px;
+  color: var(--ui-muted);
+  height: 36px;
+}
+
+.branch-collapse-title {
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.branch-panel {
+  padding: 0 2px 8px;
+}
+
+.branch-head-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.branch-item {
+  border: none;
+  border-radius: 8px;
+}
+
+.branch-item.active {
+  background: var(--ui-accent-soft);
+  box-shadow: none;
+}
+
+/* 侧栏底部评测入口 */
+.sidebar-foot {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--ui-border-soft);
+}
+
+.eval-entry {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.eval-entry:hover {
+  color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+/* ── 主区顶栏 ── */
+.workspace-head {
+  padding: 12px 28px;
+  border-bottom: 1px solid var(--ui-border-soft);
+  background: var(--ui-surface);
+}
+
+.workspace-head h2 {
+  margin: 0;
+  font-family: var(--ui-serif);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.workspace-kicker {
+  margin: 0 0 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--ui-muted);
+  text-transform: none;
+}
+
+.workspace-sub {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--ui-muted);
+}
+
+.stream-detail {
+  font-size: 11.5px;
+  color: var(--ui-muted);
+}
+
+/* ── 欢迎区 ── */
+.welcome-block {
+  margin: 8vh auto 0;
+  max-width: 930px;
+  text-align: left;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0 20px;
+}
+
+.welcome-block h3 {
+  margin: 0 0 8px;
+  font-family: var(--ui-serif);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.welcome-block p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ui-muted);
+}
+
+/* ── 消息 ── */
+.avatar {
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent);
+  border: 1px solid var(--ui-accent-line);
+  font-family: var(--ui-serif);
+  font-size: 13px;
+}
+
+.message-row.user .avatar {
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  border-color: var(--ui-border-soft);
+}
+
+.bubble {
+  border: 1px solid var(--ui-border-soft);
+  border-radius: 14px;
+  box-shadow: var(--ui-shadow);
+  background: var(--ui-surface);
+}
+
+.message-row.user .bubble {
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
+  color: #fff;
+  border-radius: 14px 14px 4px 14px;
+}
+
+.bubble-meta {
+  font-size: 11px;
+  color: var(--ui-muted);
+}
+
+.message-actions button {
+  border: none;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+
+.message-actions button:hover:not(:disabled) {
+  color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+/* 引用依据卡片：淡纸色 */
+.citation-title {
+  font-family: var(--ui-serif);
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--ui-text);
+}
+
+.citation-card {
+  background: color-mix(in oklab, var(--ui-panel) 70%, transparent);
+  border: 1px solid var(--ui-border-soft);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.citation-card-file {
+  font-family: var(--ui-serif);
+  font-weight: 600;
+}
+
+/* 检索链路行 */
+.retrieval-trace-row {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--ui-border-soft);
+}
+
+.retrieval-trace-toggle {
+  border: none;
+  background: none;
+  color: var(--ui-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.retrieval-trace-toggle:hover {
+  color: var(--ui-accent);
+}
+
+/* 无依据兜底 */
+.no-citation-fallback {
+  border: 1px solid color-mix(in oklab, var(--ui-danger) 35%, transparent);
+  background: color-mix(in oklab, var(--ui-danger) 8%, transparent);
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+
+/* ── 输入区 ── */
+.composer-shell {
+  padding: 10px 44px 16px;
+  background: transparent;
+  border-top: none;
+}
+
+.composer {
+  border: 1px solid var(--ui-border);
+  border-radius: 14px;
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow);
+  padding: 12px 14px 10px;
+}
+
+.quick-prompts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.quick-prompts button {
+  border: 1px solid var(--ui-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 12.5px;
+  font-family: inherit;
+  padding: 4px 13px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.quick-prompts button:hover {
+  color: var(--ui-accent);
+  border-color: var(--ui-accent-line);
+  background: var(--ui-accent-soft);
+}
+
+.composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.composer-disclaimer {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ui-muted);
+}
+
+/* ── 设置弹窗 ── */
+.settings-section {
+  padding: 4px 0 12px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--ui-border-soft);
+}
+
+.settings-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.settings-label {
+  margin: 0 0 10px;
+  font-family: var(--ui-serif);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ui-text);
+}
+
+.workspace-manager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workspace-manager .workspace-select {
+  flex: 1;
+  min-width: 140px;
+}
+
+.workspace-manager .workspace-input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.settings-dialog .cloud-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ── 评测页 ── */
+.eval-create-collapse {
+  --el-collapse-border-color: transparent;
+}
+
+.eval-create-collapse .el-collapse-item__header {
+  background: transparent;
+  border-bottom: none;
+  height: 34px;
+}
+
+.eval-side-panel {
+  background: transparent;
+  border-right: 1px solid var(--ui-border-soft);
+}
+
+.eval-dataset-list button {
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+}
+
+.eval-dataset-list button.active {
+  background: var(--ui-accent-soft);
+  box-shadow: none;
+}
+
+.eval-metric-card {
+  border: 1px solid var(--ui-border-soft);
+  border-radius: 11px;
+  background: var(--ui-surface);
+  box-shadow: none;
+}
+
+.eval-metric-card strong {
+  font-family: var(--ui-serif);
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-run-summary {
+  border: 1px solid var(--ui-border-soft);
+  border-radius: 11px;
+  background: var(--ui-surface);
+  box-shadow: none;
+}
+
+.eval-run-summary.current {
+  border-color: var(--ui-accent-line);
+}
+
+.eval-result-table {
+  --el-table-border-color: var(--ui-border-soft);
+  --el-table-header-text-color: var(--ui-muted);
 }
 </style>

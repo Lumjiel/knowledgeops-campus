@@ -1,19 +1,45 @@
+/* ────────────────────────────────────────────────
+   有章 · 设计令牌（清爽学术风）
+   墨青主色 + 暖白纸感底 + 衬线标题
+   ──────────────────────────────────────────────── */
 :root {
-  --ui-text: #1b2434;
-  --ui-muted: #596479;
-  --ui-accent: #0f766e;
-  --ui-border: rgba(15, 23, 42, 0.15);
-  --ui-card: rgba(250, 252, 255, 0.82);
-  --ui-panel: rgba(241, 246, 255, 0.76);
+  --ui-text: #1c2b3a;
+  --ui-muted: #5b6b7c;
+  --ui-accent: #0f4c5c;
+  --ui-accent-soft: #e8f0f1;
+  --ui-accent-line: #c9dcdf;
+  --ui-border: rgba(28, 43, 58, 0.12);
+  --ui-border-soft: rgba(28, 43, 58, 0.07);
+  --ui-card: rgba(255, 255, 255, 0.92);
+  --ui-panel: rgba(247, 245, 240, 0.85);
+  --ui-paper: #faf9f6;
+  --ui-surface: #ffffff;
+  --ui-danger: #b4552d;
+  --ui-success: #3d8b5f;
+  --ui-serif: 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
+  --ui-radius: 10px;
+  --ui-shadow:
+    0 1px 2px rgba(28, 43, 58, 0.04),
+    0 8px 24px rgba(28, 43, 58, 0.06);
 }
 
 html.dark {
-  --ui-text: #e2e8f0;
-  --ui-muted: #9aa9bf;
-  --ui-accent: #34d399;
-  --ui-border: rgba(148, 163, 184, 0.25);
-  --ui-card: rgba(8, 15, 30, 0.82);
-  --ui-panel: rgba(18, 28, 46, 0.72);
+  --ui-text: #d8e0e8;
+  --ui-muted: #8fa0b0;
+  --ui-accent: #6fb5c0;
+  --ui-accent-soft: rgba(111, 181, 192, 0.14);
+  --ui-accent-line: rgba(111, 181, 192, 0.35);
+  --ui-border: rgba(148, 163, 184, 0.22);
+  --ui-border-soft: rgba(148, 163, 184, 0.13);
+  --ui-card: rgba(13, 21, 34, 0.88);
+  --ui-panel: rgba(18, 28, 46, 0.78);
+  --ui-paper: #0b1220;
+  --ui-surface: #101a2b;
+  --ui-danger: #d08a63;
+  --ui-success: #6cb98d;
+  --ui-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 *,
@@ -30,17 +56,52 @@ body,
 }
 
 body {
-  font-family: 'IBM Plex Sans', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', sans-serif;
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei',
+    sans-serif;
   color: var(--ui-text);
-  background:
-    radial-gradient(circle at 6% -14%, rgba(14, 116, 144, 0.18), transparent 36%),
-    radial-gradient(circle at 92% -10%, rgba(15, 118, 110, 0.18), transparent 33%),
-    linear-gradient(164deg, #f6f9ff 0%, #eef4ff 45%, #f4fffd 100%);
+  background: var(--ui-paper);
 }
 
-html.dark body {
-  background:
-    radial-gradient(circle at 12% -10%, rgba(14, 165, 233, 0.24), transparent 28%),
-    radial-gradient(circle at 90% -16%, rgba(16, 185, 129, 0.2), transparent 24%),
-    linear-gradient(152deg, #020617 0%, #0c162a 58%, #12233a 100%);
+h1,
+h2,
+h3 {
+  font-family: var(--ui-serif);
+}
+
+/* ── Element Plus 主题对齐 ────────────────────── */
+:root {
+  --el-color-primary: #0f4c5c;
+  --el-color-primary-light-3: #3f7484;
+  --el-color-primary-light-5: #6f9aa8;
+  --el-color-primary-light-7: #a5c2ca;
+  --el-color-primary-light-8: #c3d6dc;
+  --el-color-primary-light-9: #e8f0f1;
+  --el-color-primary-dark-2: #0c3d4a;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-border-color: rgba(28, 43, 58, 0.14);
+  --el-border-color-light: rgba(28, 43, 58, 0.1);
+  --el-border-color-lighter: rgba(28, 43, 58, 0.07);
+  --el-text-color-primary: #1c2b3a;
+  --el-text-color-regular: #5b6b7c;
+  --el-font-family: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei',
+    sans-serif;
+}
+
+html.dark {
+  --el-color-primary: #6fb5c0;
+  --el-color-primary-light-3: #4f8f9c;
+  --el-color-primary-light-5: #3a6f7c;
+  --el-color-primary-light-7: #27505a;
+  --el-color-primary-light-8: #1f434c;
+  --el-color-primary-light-9: #17343b;
+  --el-color-primary-dark-2: #8ac6d0;
+  --el-border-color: rgba(148, 163, 184, 0.24);
+  --el-border-color-light: rgba(148, 163, 184, 0.18);
+  --el-border-color-lighter: rgba(148, 163, 184, 0.12);
+  --el-fill-color-blank: #101a2b;
+  --el-text-color-primary: #d8e0e8;
+  --el-text-color-regular: #8fa0b0;
+  --el-bg-color: #101a2b;
+  --el-bg-color-overlay: #16233a;
 }

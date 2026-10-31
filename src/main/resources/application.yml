@@ -22,9 +22,13 @@ spring:
       base-url: ${OPENAI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
       api-key: ${OPENAI_API_KEY:}
       chat:
+        base-url: ${OPENAI_CHAT_BASE_URL:${OPENAI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}}
+        api-key: ${OPENAI_CHAT_API_KEY:${OPENAI_API_KEY:}}
         options:
-          model: qwen-plus
+          model: ${OPENAI_CHAT_MODEL:qwen-plus}
       embedding:
+        base-url: ${OPENAI_EMBEDDING_BASE_URL:${OPENAI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}}
+        api-key: ${OPENAI_EMBEDDING_API_KEY:${OPENAI_API_KEY:}}
         options:
           model: text-embedding-v4
           dimensions: 1024

@@ -194,9 +194,8 @@
           </div>
 
           <template v-else>
-            <div v-if="isEmptyConversation" class="welcome-block">
-              <h3>问一句，给你条款依据</h3>
-              <p>有章可循，有据可查 —— 所有回答均引用《学生手册》原文并标注页码</p>
+            <div v-if="isEmptyConversation" class="empty-hint">
+              <p>从下面的示例问题开始，或直接输入你的问题</p>
             </div>
 
             <div class="virtual-spacer" :style="{ height: `${virtualTopSpacer}px` }"></div>
@@ -4372,10 +4371,9 @@ h2 {
 
 .brand-block h1 {
   margin: 0;
-  font-family: var(--ui-serif);
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.01em;
   color: var(--ui-text);
 }
 
@@ -4389,7 +4387,7 @@ h2 {
 .new-chat-btn {
   height: 38px;
   border: none;
-  border-radius: var(--ui-radius);
+  border-radius: 12px;
   background: var(--ui-accent);
   color: #fff;
   font-size: 13.5px;
@@ -4422,7 +4420,7 @@ h2 {
 
 .session-item {
   border: none;
-  border-radius: 9px;
+  border-radius: 10px;
   background: transparent;
   transition: background 0.12s ease;
 }
@@ -4546,8 +4544,7 @@ h2 {
 
 .workspace-head h2 {
   margin: 0;
-  font-family: var(--ui-serif);
-  font-size: 17px;
+  font-size: 15.5px;
   font-weight: 600;
 }
 
@@ -4570,29 +4567,19 @@ h2 {
   color: var(--ui-muted);
 }
 
-/* ── 欢迎区 ── */
-.welcome-block {
-  margin: 8vh auto 0;
+/* ── 空会话提示（极简） ── */
+.empty-hint {
+  margin: 14vh auto 0;
   max-width: 930px;
-  text-align: left;
-  background: none;
-  border: none;
-  box-shadow: none;
   padding: 0 20px;
+  text-align: center;
 }
 
-.welcome-block h3 {
-  margin: 0 0 8px;
-  font-family: var(--ui-serif);
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.welcome-block p {
+.empty-hint p {
   margin: 0;
-  font-size: 13.5px;
+  font-size: 12.5px;
   color: var(--ui-muted);
+  opacity: 0.75;
 }
 
 /* ── 消息 ── */
@@ -4600,8 +4587,8 @@ h2 {
   background: var(--ui-accent-soft);
   color: var(--ui-accent);
   border: 1px solid var(--ui-accent-line);
-  font-family: var(--ui-serif);
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .message-row.user .avatar {
@@ -4612,16 +4599,21 @@ h2 {
 
 .bubble {
   border: 1px solid var(--ui-border-soft);
-  border-radius: 14px;
+  border-radius: 16px;
   box-shadow: var(--ui-shadow);
   background: var(--ui-surface);
+  padding: 14px 18px;
 }
 
 .message-row.user .bubble {
   background: var(--ui-accent);
   border-color: var(--ui-accent);
   color: #fff;
-  border-radius: 14px 14px 4px 14px;
+  border-radius: 16px 16px 6px 16px;
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
+  text-align: left;
 }
 
 .bubble-meta {
@@ -4646,7 +4638,6 @@ h2 {
 
 /* 引用依据卡片：淡纸色 */
 .citation-title {
-  font-family: var(--ui-serif);
   font-weight: 600;
   font-size: 12.5px;
   color: var(--ui-text);
@@ -4655,12 +4646,12 @@ h2 {
 .citation-card {
   background: color-mix(in oklab, var(--ui-panel) 70%, transparent);
   border: 1px solid var(--ui-border-soft);
-  border-radius: 10px;
+  border-radius: 12px;
+  padding: 12px 16px;
   box-shadow: none;
 }
 
 .citation-card-file {
-  font-family: var(--ui-serif);
   font-weight: 600;
 }
 
@@ -4687,9 +4678,9 @@ h2 {
 
 /* 无依据兜底 */
 .no-citation-fallback {
-  border: 1px solid color-mix(in oklab, var(--ui-danger) 35%, transparent);
-  background: color-mix(in oklab, var(--ui-danger) 8%, transparent);
-  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--ui-danger) 30%, transparent);
+  background: color-mix(in oklab, var(--ui-danger) 6%, transparent);
+  border-radius: 12px;
   font-size: 12.5px;
 }
 
@@ -4702,10 +4693,10 @@ h2 {
 
 .composer {
   border: 1px solid var(--ui-border);
-  border-radius: 14px;
+  border-radius: 18px;
   background: var(--ui-surface);
   box-shadow: var(--ui-shadow);
-  padding: 12px 14px 10px;
+  padding: 14px 16px 12px;
 }
 
 .quick-prompts {
@@ -4761,7 +4752,6 @@ h2 {
 
 .settings-label {
   margin: 0 0 10px;
-  font-family: var(--ui-serif);
   font-weight: 600;
   font-size: 13px;
   color: var(--ui-text);
@@ -4819,19 +4809,18 @@ h2 {
 
 .eval-metric-card {
   border: 1px solid var(--ui-border-soft);
-  border-radius: 11px;
+  border-radius: 12px;
   background: var(--ui-surface);
   box-shadow: none;
 }
 
 .eval-metric-card strong {
-  font-family: var(--ui-serif);
   font-variant-numeric: tabular-nums;
 }
 
 .eval-run-summary {
   border: 1px solid var(--ui-border-soft);
-  border-radius: 11px;
+  border-radius: 12px;
   background: var(--ui-surface);
   box-shadow: none;
 }

@@ -30,7 +30,8 @@ class RerankPipelineTest {
         return new RerankPipeline(props,
                 new OverlapReranker(tokenizer),
                 new Bm25Reranker(tokenizer),
-                rrf);
+                rrf,
+                new GteReranker(props));
     }
 
     private List<Document> docs(int n) {

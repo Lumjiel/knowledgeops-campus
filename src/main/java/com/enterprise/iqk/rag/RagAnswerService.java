@@ -25,7 +25,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
@@ -42,6 +45,48 @@ public class RagAnswerService {
     private final RerankPipeline rerankPipeline;
     private final MemoryService memoryService;
     private final SlotExtractor slotExtractor;
+
+    /**
+     * 只跑「检索 + 精排」不调用 LLM 的调试入口，与 answer() 完全同一条链路。
+     * 供离线评测（Hit@K / MRR）和 bad case 定位使用。
+     */
+    public PipelineDebugResult debugRetrieve(String prompt, String tenantId, String chatId, int topK) {
+        String normalizedTenantId = TenantContext.normalize(tenantId);
+        String filterExpression = "tenant_id == \"" + escapeFilterValue(normalizedTenantId)
+                + "\" && (chat_id == \"" + escapeFilterValue(chatId)
+                + "\" || chat_id == \"" + escapeFilterValue(ragProperties.getSharedCorpusChatId()) + "\")";
+        SearchRequest request = SearchRequest.builder()
+                .query(prompt)
+                .topK(ragProperties.getRetrievalTopN())
+                .similarityThreshold(ragProperties.getSimilarityThreshold())
+                .filterExpression(filterExpression)
+                .build();
+
+        long start = System.nanoTime();
+        List<Document> retrieved = similaritySearchWithMetrics(request);
+        long recallMs = (System.nanoTime() - start) / 1_000_000;
+
+        RerankPipeline.PipelineResult pipeline = retrieved == null || retrieved.isEmpty()
+                ? new RerankPipeline.PipelineResult(List.of(), false, 0, 0, 0, 0)
+                : rerankWithMetrics(prompt, retrieved);
+
+        List<Document> docs = pipeline.documents();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        int rank = 1;
+        for (Document d : docs) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("rank", rank++);
+            row.put("metadata", d.getMetadata());
+            row.put("content", d.getText());
+            rows.add(row);
+        }
+        return new PipelineDebugResult(rows, retrieved == null ? 0 : retrieved.size(),
+                pipeline.degraded(), pipeline.coarseMs(), pipeline.fineMs(), recallMs);
+    }
+
+    public record PipelineDebugResult(List<Map<String, Object>> documents, int recallCount,
+                                      boolean degraded, long coarseMs, long fineMs, long recallMs) {
+    }
 
     public RagResult answer(String prompt, String tenantId, String chatId, String conversationId, String modelProfile) {
         Timer.Sample pipelineSample = Timer.start(meterRegistry);

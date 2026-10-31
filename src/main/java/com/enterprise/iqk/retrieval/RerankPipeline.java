@@ -27,6 +27,8 @@ public class RerankPipeline {
     private final Bm25Reranker bm25Reranker;
     private final RrfReranker rrfReranker;
 
+    private final GteReranker gteReranker;
+
     private final ExecutorService fineExecutor = Executors.newFixedThreadPool(2, runnable -> {
         Thread thread = new Thread(runnable, "rerank-fine");
         thread.setDaemon(true);
@@ -36,11 +38,13 @@ public class RerankPipeline {
     public RerankPipeline(RagProperties ragProperties,
                           OverlapReranker overlapReranker,
                           Bm25Reranker bm25Reranker,
-                          RrfReranker rrfReranker) {
+                          RrfReranker rrfReranker,
+                          GteReranker gteReranker) {
         this.ragProperties = ragProperties;
         this.overlapReranker = overlapReranker;
         this.bm25Reranker = bm25Reranker;
         this.rrfReranker = rrfReranker;
+        this.gteReranker = gteReranker;
     }
 
     public PipelineResult rerank(String query, List<Document> candidates, int finalTopK) {
@@ -59,7 +63,8 @@ public class RerankPipeline {
         List<ScoredDocument> fineRanked;
         boolean degraded = false;
         long fineMs = 0;
-        boolean fineEnabled = "rrf".equalsIgnoreCase(ragProperties.getFineReranker())
+        boolean isCe = "gte".equalsIgnoreCase(ragProperties.getFineReranker());
+        boolean fineEnabled = ("rrf".equalsIgnoreCase(ragProperties.getFineReranker()) || isCe)
                 && coarseRanked.size() > 1;
         if (!fineEnabled) {
             fineRanked = coarseRanked;
@@ -68,10 +73,18 @@ public class RerankPipeline {
             byVector.sort(Comparator.comparingDouble(ScoredDocument::getRetrievalScore).reversed());
             long fineStart = System.nanoTime();
             try {
+                if (isCe) {
+                    // Cross-Encoder 精排：粗排候选成对送 gte-rerank 深度打分
+                    fineRanked = CompletableFuture
+                            .supplyAsync(() -> gteReranker.rerank(query, coarseRanked, finalTopK), fineExecutor)
+                            .orTimeout(ragProperties.getRerankBudgetMs(), TimeUnit.MILLISECONDS)
+                            .join();
+                } else {
                 fineRanked = CompletableFuture
                         .supplyAsync(() -> rrfReranker.rerankFusion(byVector, coarseRanked, finalTopK), fineExecutor)
                         .orTimeout(ragProperties.getRerankBudgetMs(), TimeUnit.MILLISECONDS)
                         .join();
+                }
             } catch (CompletionException ex) {
                 // 超时或精排异常：跳过精排，降级返回粗排结果
                 degraded = true;
@@ -93,7 +106,7 @@ public class RerankPipeline {
             Document d = documents.get(i);
             scored.add(ScoredDocument.builder()
                     .docId("doc-" + i)
-                    .content(d.getFormattedContent())
+                    .content(d.getText())
                     .retrievalScore(readScore(d, i))
                     .finalScore(0.0)
                     .metadata(d.getMetadata())

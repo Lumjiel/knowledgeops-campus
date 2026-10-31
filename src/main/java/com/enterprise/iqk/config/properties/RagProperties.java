@@ -19,6 +19,8 @@ public class RagProperties {
     private int coarseTopK = 20;                 // 粗排保留条数（管线二级）
     private long rerankBudgetMs = 800;           // 精排延迟预算，超时降级
     private String sharedCorpusChatId = "shared-corpus"; // 全局共享语料作用域，检索与会话级文档合并召回
+    private String rerankEndpoint = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
+    private String rerankModel = "gte-rerank-v2"; // Cross-Encoder 精排模型
 
     @Data
     public static class Split {

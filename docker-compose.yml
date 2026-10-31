@@ -29,6 +29,10 @@ services:
       # 切块粒度实验开关：RAG_SPLITCHUNKSIZE（Spring 宽松绑定 -> rag.split.chunk-size）
       RAG_SPLIT_CHUNK_SIZE: ${RAG_SPLIT_CHUNK_SIZE:-800}
       RAG_SPLIT_MIN_CHUNK_SIZE: ${RAG_SPLIT_MIN_CHUNK_SIZE:-120}
+      # 精排模式：rrf（排名融合）| gte（Cross-Encoder，dashscope gte-rerank）
+      RAG_FINE_RERANKER: ${RAG_FINE_RERANKER:-rrf}
+      RAG_RERANKMODEL: ${RAG_RERANKMODEL:-gte-rerank-v2}
+      RERANK_API_KEY: ${RERANK_API_KEY:-${OPENAI_API_KEY:-sk-replace-me}}
       APP_SECURITY_ENABLED: "true"
       APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET is required - set it in .env or the environment}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:8088}

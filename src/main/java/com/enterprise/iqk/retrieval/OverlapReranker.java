@@ -62,7 +62,7 @@ public class OverlapReranker implements Reranker {
             Document d = documents.get(i);
             scored.add(ScoredDocument.builder()
                     .docId("doc-" + i)
-                    .content(d.getFormattedContent())
+                    .content(d.getText())
                     .retrievalScore(readScore(d, i))
                     .finalScore(0.0)
                     .metadata(d.getMetadata())

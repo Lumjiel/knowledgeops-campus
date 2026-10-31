@@ -6,7 +6,9 @@
         <p class="brand-sub">有章可循，有据可查 · 南京工程学院学生手册 2023 版</p>
       </div>
 
-      <button class="new-chat-btn" type="button" @click="createAndSwitchSession">＋ 新建会话</button>
+      <button class="new-chat-btn" type="button" @click="createAndSwitchSession">
+        ＋ 新建会话
+      </button>
 
       <section class="session-tools">
         <el-input v-model="sessionSearch" size="small" placeholder="搜索会话标题或 ID" clearable />
@@ -62,7 +64,9 @@
       <el-collapse class="branch-collapse">
         <el-collapse-item name="branch">
           <template #title>
-            <span class="branch-collapse-title">分支树（{{ activeSession?.branches.length ?? 0 }} 条）</span>
+            <span class="branch-collapse-title"
+              >分支树（{{ activeSession?.branches.length ?? 0 }} 条）</span
+            >
           </template>
           <section class="branch-panel">
             <div class="branch-head-actions">
@@ -107,7 +111,11 @@
       </el-collapse>
 
       <footer class="sidebar-foot">
-        <button type="button" class="eval-entry" @click="activateView(activeView === 'chat' ? 'evaluation' : 'chat')">
+        <button
+          type="button"
+          class="eval-entry"
+          @click="activateView(activeView === 'chat' ? 'evaluation' : 'chat')"
+        >
           {{ activeView === 'chat' ? '评测模式 · 数据看板' : '← 返回对话' }}
         </button>
       </footer>
@@ -257,7 +265,11 @@
                             <!-- eslint-disable vue/no-v-html -- 内容经 DOMPurify 消毒 -->
                             <p
                               class="citation-card-snippet"
-                              :class="{ expanded: expandedCitationCards.has(`${entry.item.id}-${card.index}`) }"
+                              :class="{
+                                expanded: expandedCitationCards.has(
+                                  `${entry.item.id}-${card.index}`,
+                                ),
+                              }"
                               v-html="renderSnippet(card.snippet, entry.item.matchedQuestion)"
                             ></p>
                             <!-- eslint-enable vue/no-v-html -->
@@ -273,10 +285,7 @@
                           </div>
                         </div>
                       </div>
-                      <div
-                        v-else-if="entry.item.citations?.length"
-                        class="citation-panel"
-                      >
+                      <div v-else-if="entry.item.citations?.length" class="citation-panel">
                         <p class="citation-title">来源引用</p>
                         <div class="citation-list">
                           <button
@@ -309,8 +318,9 @@
                             检索链路 · 召回 {{ entry.item.retrievalTrace.recall }} → 粗排
                             {{ entry.item.retrievalTrace.coarse }} → 精排
                             {{ entry.item.retrievalTrace.fine }} ·
-                            {{ entry.item.retrievalTrace.coarseMs +
-                              entry.item.retrievalTrace.fineMs }}ms ▾
+                            {{
+                              entry.item.retrievalTrace.coarseMs + entry.item.retrievalTrace.fineMs
+                            }}ms ▾
                           </template>
                           <template v-else>检索链路 ▾</template>
                         </button>
@@ -335,19 +345,31 @@
                                 <td>—</td>
                               </tr>
                               <tr>
-                                <td>粗排（{{ entry.item.retrievalTrace?.coarseReranker ?? '—' }}）</td>
+                                <td>
+                                  粗排（{{ entry.item.retrievalTrace?.coarseReranker ?? '—' }}）
+                                </td>
                                 <td>{{ entry.item.retrievalTrace?.recall ?? '—' }}</td>
                                 <td>{{ entry.item.retrievalTrace?.coarse ?? '—' }}</td>
                                 <td>
-                                  {{ entry.item.retrievalTrace ? entry.item.retrievalTrace.coarseMs + 'ms' : '—' }}
+                                  {{
+                                    entry.item.retrievalTrace
+                                      ? entry.item.retrievalTrace.coarseMs + 'ms'
+                                      : '—'
+                                  }}
                                 </td>
                               </tr>
                               <tr>
-                                <td>精排（{{ entry.item.retrievalTrace?.fineReranker ?? '—' }}）</td>
+                                <td>
+                                  精排（{{ entry.item.retrievalTrace?.fineReranker ?? '—' }}）
+                                </td>
                                 <td>{{ entry.item.retrievalTrace?.coarse ?? '—' }}</td>
                                 <td>{{ entry.item.retrievalTrace?.fine ?? '—' }}</td>
                                 <td>
-                                  {{ entry.item.retrievalTrace ? entry.item.retrievalTrace.fineMs + 'ms' : '—' }}
+                                  {{
+                                    entry.item.retrievalTrace
+                                      ? entry.item.retrievalTrace.fineMs + 'ms'
+                                      : '—'
+                                  }}
                                 </td>
                               </tr>
                             </tbody>
@@ -653,12 +675,7 @@
             <el-table-column label="延迟" width="120">
               <template #default="{ row }">{{ row.latencyMs }}ms</template>
             </el-table-column>
-            <el-table-column
-              prop="question"
-              label="问题"
-              min-width="280"
-              show-overflow-tooltip
-            />
+            <el-table-column prop="question" label="问题" min-width="280" show-overflow-tooltip />
           </el-table>
         </section>
       </section>
@@ -4521,7 +4538,9 @@ h2 {
   font-size: 12.5px;
   font-family: inherit;
   cursor: pointer;
-  transition: color 0.12s ease, background 0.12s ease;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease;
 }
 
 .eval-entry:hover {
@@ -4709,7 +4728,10 @@ h2 {
   font-family: inherit;
   padding: 4px 13px;
   cursor: pointer;
-  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
 }
 
 .quick-prompts button:hover {

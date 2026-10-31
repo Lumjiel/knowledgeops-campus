@@ -16,12 +16,9 @@
   --ui-surface: #ffffff;
   --ui-danger: #b4552d;
   --ui-success: #3d8b5f;
-  --ui-serif: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei',
-    sans-serif;
+  --ui-serif: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
   --ui-radius: 12px;
-  --ui-shadow:
-    0 1px 2px rgba(28, 43, 58, 0.03),
-    0 4px 16px rgba(28, 43, 58, 0.05);
+  --ui-shadow: 0 1px 2px rgba(28, 43, 58, 0.03), 0 4px 16px rgba(28, 43, 58, 0.05);
 }
 
 html.dark {
@@ -38,9 +35,7 @@ html.dark {
   --ui-surface: #101a2b;
   --ui-danger: #d08a63;
   --ui-success: #6cb98d;
-  --ui-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 8px 24px rgba(0, 0, 0, 0.35);
+  --ui-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 *,
@@ -57,8 +52,7 @@ body,
 }
 
 body {
-  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei',
-    sans-serif;
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
   color: var(--ui-text);
   background: var(--ui-paper);
 }
@@ -85,8 +79,8 @@ h3 {
   --el-border-color-lighter: rgba(28, 43, 58, 0.07);
   --el-text-color-primary: #1c2b3a;
   --el-text-color-regular: #5b6b7c;
-  --el-font-family: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei',
-    sans-serif;
+  --el-font-family:
+    'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
 }
 
 html.dark {

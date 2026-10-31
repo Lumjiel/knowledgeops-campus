@@ -254,11 +254,13 @@
                                   : '▾'
                               }}</span>
                             </button>
+                            <!-- eslint-disable vue/no-v-html -- 内容经 DOMPurify 消毒 -->
                             <p
                               class="citation-card-snippet"
                               :class="{ expanded: expandedCitationCards.has(`${entry.item.id}-${card.index}`) }"
                               v-html="renderSnippet(card.snippet, entry.item.matchedQuestion)"
                             ></p>
+                            <!-- eslint-enable vue/no-v-html -->
                             <div class="citation-card-actions">
                               <button
                                 type="button"
@@ -1169,14 +1171,6 @@ function renderSnippet(snippet: string, question?: string): string {
     'g',
   );
   return safe.replace(pattern, '<mark>$1</mark>');
-}
-
-async function sendQuickPrompt(sample: string): Promise<void> {
-  if (sending.value) {
-    return;
-  }
-  prompt.value = sample;
-  await send();
 }
 
 function deriveTitle(text: string): string {

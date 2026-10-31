@@ -374,8 +374,8 @@ public class RagAnswerService {
                 }
                 memoryService.saveShortMemory(tenantId, userId, summary, "summary");
             }
-        } catch (Exception e) {
-            // 记忆写失败不阻断问答主链路
+        } catch (RuntimeException e) {
+            // 记忆写失败不阻断问答主链路（SpotBugs REC_CATCH_EXCEPTION：try 块无可抛受检异常）
         }
     }
 

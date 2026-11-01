@@ -36,8 +36,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -119,6 +121,25 @@ public class IngestionService {
 
     public List<IngestionJob> listByChatId(String tenantId, String chatId, int limit) {
         return ingestionJobMapper.findLatestByChatId(TenantContext.normalize(tenantId), chatId, Math.max(limit, 1));
+    }
+
+    /** 两层作用域取文档：先会话级，再全局 shared-corpus（引用溯源「展开原文」用）。 */
+    public List<IngestionJob> listBySourceAcrossScopes(String tenantId, String chatId, String sourceName, int limit) {
+        String normalizedTenant = TenantContext.normalize(tenantId);
+        // 先取足够多的候选再按来源名过滤（shared-corpus 里可能有多份文档）
+        List<IngestionJob> scoped = ingestionJobMapper.findLatestByChatId(normalizedTenant, chatId, 50);
+        List<IngestionJob> shared = ingestionJobMapper.findLatestByChatId(
+                normalizedTenant, ragProperties.getSharedCorpusChatId(), 50);
+        List<IngestionJob> merged = new ArrayList<>(scoped);
+        merged.addAll(shared);
+        return merged.stream()
+                .filter(job -> !StringUtils.hasText(sourceName)
+                        || job.getSourceName().equalsIgnoreCase(sourceName)
+                        || job.getSourceName().equalsIgnoreCase(sourceName + ".pdf")
+                        || job.getSourceName().toLowerCase(Locale.ROOT)
+                                .startsWith(sourceName.toLowerCase(Locale.ROOT)))
+                .limit(Math.max(limit, 1))
+                .toList();
     }
 
     public IngestionProcessResult processQueuedJob(String jobId, String traceId) {

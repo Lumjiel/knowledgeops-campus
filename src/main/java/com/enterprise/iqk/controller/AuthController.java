@@ -90,7 +90,8 @@ public class AuthController {
         String principal = "guest-" + Integer.toHexString(java.util.Objects
                 .hash(clientIp, java.time.LocalDate.now().toString()));
         List<String> guestPermissions = List.of(
-                "chat:read", "chat:write", "session:read", "session:write", "feedback:write");
+                "chat:read", "chat:write", "session:read", "session:write", "feedback:write",
+                "rag:read");
         String token = jwtService.issueToken(principal, List.of("GUEST"), guestPermissions, "public", 120L);
         return AuthTokenVO.builder()
                 .ok(1)

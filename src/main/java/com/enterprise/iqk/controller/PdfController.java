@@ -71,8 +71,13 @@ public class PdfController {
     }
 
     @GetMapping("/file/{chatId}")
-    public ResponseEntity<Resource> download(@PathVariable("chatId") String chatId) {
-        List<IngestionJob> jobs = ingestionService.listByChatId(currentTenantId(), chatId, 1);
+    public ResponseEntity<Resource> download(
+            @PathVariable("chatId") String chatId,
+            @RequestParam(value = "source", required = false) String source) {
+        // 引用溯源：带 source 时在「会话 + 全局 shared-corpus」两层作用域内按来源名定位
+        List<IngestionJob> jobs = StringUtils.hasText(source)
+                ? ingestionService.listBySourceAcrossScopes(currentTenantId(), chatId, source, 1)
+                : ingestionService.listByChatId(currentTenantId(), chatId, 1);
         if (jobs.isEmpty()) {
             throw new ResponseStatusException(NOT_FOUND, "file not found");
         }
@@ -86,8 +91,8 @@ public class PdfController {
                 StandardCharsets.UTF_8
         );
         return ResponseEntity.ok()
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.APPLICATION_PDF)
+                .header("Content-Disposition", "inline; filename*=UTF-8''" + filename)
                 .body(resource);
     }
 

@@ -173,7 +173,8 @@ public class ReactAgentService {
                     StringBuilder answerBuilder = new StringBuilder();
 
                     Flux<String> answerSourceFlux = StringUtils.hasText(directAnswer)
-                            ? Flux.just(directAnswer)
+                            ? Flux.fromIterable(splitForStreaming(directAnswer))
+                                    .delayElements(java.time.Duration.ofMillis(14))
                             : callModelStream(
                             "你是企业级AI助手，请结合轨迹和观察信息给出最终答案。",
                             buildFinalPrompt(request, trace, rollingContext),
@@ -260,6 +261,16 @@ public class ReactAgentService {
                 .tag("outcome", outcome)
                 .register(meterRegistry)
                 .increment();
+    }
+
+    /** 把 planner 直接给出的完整答案切成小段延迟下发，保持流式观感。 */
+    private List<String> splitForStreaming(String text) {
+        List<String> parts = new ArrayList<>();
+        int size = 24;
+        for (int i = 0; i < text.length(); i += size) {
+            parts.add(text.substring(i, Math.min(text.length(), i + size)));
+        }
+        return parts;
     }
 
     private ReasonDecision reason(ReactChatRequestVO request,

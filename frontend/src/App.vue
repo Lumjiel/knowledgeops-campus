@@ -596,16 +596,20 @@
                 @keydown.enter.exact.prevent="send"
               />
               <el-button
+                v-if="sending"
+                class="composer-send"
+                :disabled="!sending"
+                @click="stopGenerating"
+                >停止</el-button
+              >
+              <el-button
+                v-else
                 class="composer-send"
                 type="primary"
-                :loading="sending"
-                :disabled="!prompt.trim() || sending"
+                :disabled="!prompt.trim()"
                 @click="send"
                 >发送</el-button
               >
-            </div>
-            <div v-if="sending" class="composer-stop">
-              <el-button size="small" :disabled="!sending" @click="stopGenerating">停止</el-button>
             </div>
             <input
               ref="pdfInputRef"
@@ -715,7 +719,12 @@
       </section>
     </main>
 
-    <el-dialog v-model="settingsOpen" title="设置" width="480px" class="settings-dialog">
+    <el-dialog
+      v-model="settingsOpen"
+      title="设置"
+      :width="isMobile ? '94%' : '480px'"
+      class="settings-dialog"
+    >
       <div class="settings-section">
         <p class="settings-label">鉴权与模型</p>
         <el-form label-position="top" size="small">

@@ -17,7 +17,7 @@
   --ui-danger: #b4552d;
   --ui-success: #3d8b5f;
   --ui-serif: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
-  --ui-radius: 12px;
+  --ui-radius: 10px;
   --ui-shadow: 0 1px 2px rgba(28, 43, 58, 0.03), 0 4px 16px rgba(28, 43, 58, 0.05);
 }
 

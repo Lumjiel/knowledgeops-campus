@@ -65,9 +65,16 @@ public class ReactAgentService {
             usedFallback = usedFallback || decision.fallback();
 
             if ("finish".equals(decision.action())) {
-                AnswerResult answer = StringUtils.hasText(decision.answer())
+                AnswerResult raw = StringUtils.hasText(decision.answer())
                         ? new AnswerResult(decision.answer(), false)
                         : summarizeAnswer(request, trace, rollingContext, routeDecision, tenantId);
+                // 消毒：若最终答案疑似决策 JSON，提取 answer 字段
+                String sanitizedAnswer = raw.answer() != null && raw.answer().stripLeading().startsWith("{")
+                        ? java.util.Optional.ofNullable(decisionParser.extractAnswerFromRaw(raw.answer()))
+                                .filter(java.util.function.Predicate.not(String::isBlank))
+                                .orElse("（模型输出异常，请重试）")
+                        : raw.answer();
+                AnswerResult answer = new AnswerResult(sanitizedAnswer, raw.fallback());
                 usedFallback = usedFallback || answer.fallback();
                 Map<String, Object> observation = new LinkedHashMap<>();
                 observation.put("status", "completed");
@@ -176,7 +183,30 @@ public class ReactAgentService {
                             conversationId(request)
                     );
 
-                    Flux<String> tokenFlux = answerSourceFlux
+                    // 防泄漏：最终回答若以 JSON 开头（cheap 模型偶发把决策 JSON 当答案），
+                    // 缓冲全量后提取 answer 字段再下发，其余情况保持逐 token 流式。
+                    Flux<String> sanitizedAnswerFlux = answerSourceFlux
+                            .switchOnFirst((signal, flux) -> {
+                                if (signal.hasValue()) {
+                                    Object first = signal.get();
+                                    if (first != null && first.toString().stripLeading().startsWith("{")) {
+                                        return flux.collectList()
+                                                .map(list -> {
+                                                    String whole = String.join("", list);
+                                                    String extracted = decisionParser.extractAnswerFromRaw(whole);
+                                                    answerBuilder.setLength(0);
+                                                    answerBuilder.append(extracted);
+                                                    return StringUtils.hasText(extracted)
+                                                            ? extracted
+                                                            : "（模型输出异常，请重试）";
+                                                })
+                                                .flux();
+                                    }
+                                }
+                                return flux;
+                            });
+
+                    Flux<String> tokenFlux = sanitizedAnswerFlux
                             .map(token -> {
                                 if (firstTokenLatencyMsRef.get() == null) {
                                     firstTokenLatencyMsRef.set(elapsedMs(startedNs));
@@ -240,6 +270,7 @@ public class ReactAgentService {
         String planningPrompt = """
                 You are a ReAct planner for an education assistant.
                 You must choose exactly one action for the next step.
+                Always write "thought" and any user-visible text in Chinese (Simplified).
                 %n
                 Allowed actions:
                 - query_school

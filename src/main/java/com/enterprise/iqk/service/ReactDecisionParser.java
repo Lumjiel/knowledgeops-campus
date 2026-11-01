@@ -124,8 +124,56 @@ public class ReactDecisionParser {
         );
     }
 
+    /** 供最终回答消毒使用：从疑似决策 JSON 的原始输出中提取 answer 字段，提取不到返回空串。 */
+    public String extractAnswerFromRaw(String raw) {
+        return extractAnswerField(raw);
+    }
+
     private ReasonDecision finishWithAnswer(String thought, String rawModelOutput) {
-        return new ReasonDecision(thought, "finish", Collections.emptyMap(), emptyIfBlank(rawModelOutput), List.of(), List.of(), false);
+        String answer = extractAnswerField(rawModelOutput);
+        if (!StringUtils.hasText(answer)) {
+            answer = emptyIfBlank(rawModelOutput);
+        }
+        return new ReasonDecision(thought, "finish", Collections.emptyMap(), answer, List.of(), List.of(), false);
+    }
+
+    /**
+     * planner 输出无法解析时，尽力从原始文本里提取 answer 字段，
+     * 避免把 ReAct 决策 JSON 原样展示给用户。
+     */
+    private String extractAnswerField(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return "";
+        }
+        try {
+            JsonNode node = objectMapper.readTree(extractJson(raw));
+            String answer = node.path("answer").asText("");
+            if (StringUtils.hasText(answer)) {
+                return answer;
+            }
+            JsonNode input = node.path("action_input");
+            if (input.isObject()) {
+                String nested = input.path("answer").asText("");
+                if (StringUtils.hasText(nested)) {
+                    return nested;
+                }
+            }
+        } catch (JsonProcessingException ignored) {
+            // 落入正则兜底
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"answer\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
+                .matcher(raw);
+        if (m.find()) {
+            String value = m.group(1)
+                    .replace("\\n", "\n")
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\");
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private String extractJson(String raw) {

@@ -3,7 +3,7 @@
     <aside class="sidebar">
       <div class="brand-block">
         <h1>有章</h1>
-        <p class="brand-sub">有章可循，有据可查 · 南京工程学院学生手册 2023 版</p>
+        <p class="brand-sub">有章可循 · 有据可查</p>
       </div>
 
       <button class="new-chat-btn" type="button" @click="createAndSwitchSession">
@@ -253,7 +253,7 @@
                               @click="toggleCitationCard(`${entry.item.id}-${card.index}`)"
                             >
                               <span class="citation-card-index">[{{ card.index }}]</span>
-                              <span class="citation-card-file">{{ card.file }}</span>
+                              <span class="citation-card-file">{{ prettyFileName(card.file) }}</span>
                               <span v-if="card.page != null" class="citation-card-page"
                                 >· P{{ card.page }}</span
                               >
@@ -304,7 +304,7 @@
                         v-if="entry.item.role === 'assistant' && !hasCitationSource(entry.item)"
                         class="no-citation-fallback"
                       >
-                        ⚠ 未在学生手册中找到直接依据，建议咨询学生处（025-xxxxxxx）或辅导员
+                        ⚠ 以上为通用参考信息，暂未匹配到可引用的规章原文，请以学校官方最新通知为准
                       </div>
                       <div
                         v-if="entry.item.role === 'assistant' && entry.item.state === 'done'"
@@ -566,9 +566,9 @@
               v-model="prompt"
               class="composer-input"
               type="textarea"
-              :rows="2"
+              :autosize="{ minRows: 1, maxRows: 5 }"
               resize="none"
-              placeholder="输入问题，Enter 发送，Shift + Enter 换行"
+              placeholder="输入你的问题…"
               @keydown.enter.exact.prevent="send"
             />
             <div class="composer-actions">
@@ -582,7 +582,7 @@
               >
             </div>
           </div>
-          <p class="composer-disclaimer">回答由 AI 生成，以《学生手册》原文及学校最新通知为准</p>
+          <p class="composer-disclaimer">内容由 AI 生成，请以学校最新官方通知为准</p>
         </footer>
       </template>
 
@@ -1178,6 +1178,14 @@ function questionKeywords(question: string | undefined): string[] {
  * snippet 渲染：先 HTML 转义再高亮（防注入），expanded 时展示全文。
  * 高亮只包 <mark>，匹配不到就原样返回，不报错。
  */
+function prettyFileName(raw: string | undefined): string {
+  if (!raw) return '规章制度';
+  return raw
+    .replace(/\.pdf$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .trim() || '规章制度';
+}
+
 function renderSnippet(snippet: string, question?: string): string {
   const text = String(snippet ?? '');
   const safe = escapeHtml(text);
@@ -2528,20 +2536,41 @@ function clearConversation(): void {
   persistState();
 }
 
-const guestMode = ref(false);
+const retriedAuth = ref(false);
+/** 游客模式：从 token 的 subject 派生（guest-* 前缀），刷新后依然生效。 */
+const guestMode = computed(() => {
+  const t = token.value || '';
+  if (!t) return false;
+  try {
+    const payload = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return String(payload.sub || '').startsWith('guest-');
+  } catch {
+    return false;
+  }
+});
 
-/** 游客模式自动登录：无 token 且未配置 API Key 时静默换取低权限短时效 JWT。 */
-async function guestAutoLogin(): Promise<void> {
-  if (token.value || apiKeyInput.value.trim()) {
-    return;
+/** 401 后的凭证恢复：优先用已保存的 API Key 重换 JWT，失败则降级游客模式。 */
+async function ensureCredential(): Promise<boolean> {
+  token.value = '';
+  if (apiKeyInput.value.trim()) {
+    try {
+      const auth = await exchangeApiKey(apiKeyInput.value.trim(), tenantInput.value.trim() || undefined);
+      token.value = auth.token ?? '';
+      persistState();
+      if (token.value) {
+        return true;
+      }
+    } catch {
+      // 落入游客通道
+    }
   }
   try {
     const auth = await exchangeGuestToken(tenantInput.value.trim() || undefined);
     token.value = auth.token ?? '';
-    guestMode.value = Boolean(token.value);
     persistState();
+    return Boolean(token.value);
   } catch {
-    // 游客 token 不可用（限流/后端不可达）时保持静默，用户仍可手动配置 API Key
+    return false;
   }
 }
 
@@ -2748,6 +2777,7 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
       messages.value[assistantIndex].state = 'done';
       streamPhase.value = 'done';
       streamStatusDetail.value = '响应已完成';
+      retriedAuth.value = false;
     }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -2760,6 +2790,19 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
       streamStatusDetail.value = '你手动停止了本次输出';
     } else {
       const message = error instanceof Error ? error.message : 'request failed';
+      // 凭证过期：清 token → 游客自动登录 → 自动重试一次（对用户无感）
+      if (/\b401\b/.test(message) && !retriedAuth.value) {
+        retriedAuth.value = true;
+        if (await ensureCredential()) {
+          ElMessage.info('登录态已过期，已自动恢复，正在重试');
+          messages.value.splice(assistantIndex, 1);
+          sending.value = false;
+          isStreamingResponse.value = false;
+          currentAbortController.value = null;
+          await ask(question, false);
+          return;
+        }
+      }
       messages.value[assistantIndex].content = `请求失败：${message}`;
       messages.value[assistantIndex].state = 'error';
       streamPhase.value = 'error';
@@ -2865,10 +2908,19 @@ watch(
 );
 
 onMounted(() => {
-  loadSession(activeSessionId.value);
+  // 先确保证据就绪（游客/已存 Key），再发起会话与评测等带鉴权的初始请求，避免开机 401
+  void (async () => {
+    if (!token.value) {
+      await ensureCredential();
+    }
+    loadSession(activeSessionId.value);
+    // 游客无 cost/memory 权限，跳过对应初始请求避免 401
+    if (!guestMode.value) {
+      void loadMemoryHint();
+      void refreshCostSummary();
+    }
+  })();
   updateViewport();
-  void loadMemoryHint();
-  void guestAutoLogin();
 
   if (typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver((entries) => {
@@ -2888,10 +2940,6 @@ onMounted(() => {
     hydrating.value = false;
     void scrollToBottom(true);
   }, 220);
-
-  if (canUseRemoteSync.value) {
-    void refreshCostSummary();
-  }
 
   if (activeView.value === 'evaluation') {
     void loadEvalDatasets();
@@ -4407,16 +4455,16 @@ h2 {
 
 .brand-block h1 {
   margin: 0;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   color: var(--ui-text);
 }
 
 .brand-block .brand-sub {
-  margin: 4px 0 0;
-  font-size: 11px;
-  line-height: 1.5;
+  margin: 3px 0 0;
+  font-size: 10.5px;
+  line-height: 1.4;
   color: var(--ui-muted);
 }
 
@@ -4582,7 +4630,7 @@ h2 {
 
 .workspace-head h2 {
   margin: 0;
-  font-size: 15.5px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -4637,17 +4685,19 @@ h2 {
 
 .bubble {
   border: 1px solid var(--ui-border-soft);
-  border-radius: 16px;
+  border-radius: 14px;
   box-shadow: var(--ui-shadow);
   background: var(--ui-surface);
-  padding: 14px 18px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  line-height: 1.7;
 }
 
 .message-row.user .bubble {
   background: var(--ui-accent);
   border-color: var(--ui-accent);
   color: #fff;
-  border-radius: 16px 16px 6px 16px;
+  border-radius: 14px 14px 5px 14px;
   width: fit-content;
   max-width: 100%;
   margin-left: auto;
@@ -4724,17 +4774,20 @@ h2 {
 
 /* ── 输入区 ── */
 .composer-shell {
-  padding: 10px 44px 16px;
+  max-width: 930px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 8px 20px 14px;
   background: transparent;
   border-top: none;
 }
 
 .composer {
   border: 1px solid var(--ui-border);
-  border-radius: 18px;
+  border-radius: 14px;
   background: var(--ui-surface);
   box-shadow: var(--ui-shadow);
-  padding: 14px 16px 12px;
+  padding: 10px 12px 8px;
 }
 
 .quick-prompts {
@@ -4749,7 +4802,7 @@ h2 {
   border-radius: 999px;
   background: transparent;
   color: var(--ui-muted);
-  font-size: 12.5px;
+  font-size: 12px;
   font-family: inherit;
   padding: 4px 13px;
   cursor: pointer;
@@ -4773,10 +4826,11 @@ h2 {
 }
 
 .composer-disclaimer {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   text-align: center;
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--ui-muted);
+  opacity: 0.8;
 }
 
 /* ── 设置弹窗 ── */

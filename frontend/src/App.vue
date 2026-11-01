@@ -129,6 +129,14 @@
 
     <main class="workspace">
       <header class="workspace-head">
+        <button
+          type="button"
+          class="sidebar-toggle"
+          aria-label="会话列表"
+          @click="sidebarOpen = !sidebarOpen"
+        >
+          ☰
+        </button>
         <div v-if="activeView === 'chat'">
           <p class="workspace-kicker">当前会话</p>
           <h2>{{ activeSession?.title || '新会话' }}</h2>
@@ -144,14 +152,6 @@
           </p>
         </div>
         <div v-if="activeView === 'chat'" class="head-actions">
-          <button
-            type="button"
-            class="sidebar-toggle"
-            aria-label="会话列表"
-            @click="sidebarOpen = !sidebarOpen"
-          >
-            ☰
-          </button>
           <el-tag v-if="guestMode" effect="plain" class="guest-chip">游客模式</el-tag>
           <el-tag :type="streamStatusTagType" effect="plain">{{ streamStatusLabel }}</el-tag>
           <span class="stream-detail">{{ streamStatusDetail }}</span>
@@ -160,13 +160,6 @@
               costSummary.monthlyBudgetUsd.toFixed(4)
             }}</span
           >
-          <el-switch
-            v-model="darkMode"
-            size="small"
-            inline-prompt
-            active-text="深"
-            inactive-text="浅"
-          />
           <el-button size="small" text @click="settingsOpen = true">设置</el-button>
         </div>
         <div v-else class="head-actions">
@@ -317,7 +310,11 @@
                         </div>
                       </div>
                       <div
-                        v-if="entry.item.role === 'assistant' && !hasCitationSource(entry.item)"
+                        v-if="
+                          entry.item.role === 'assistant' &&
+                          !hasCitationSource(entry.item) &&
+                          !entry.item.content.includes('我是有章')
+                        "
                         class="no-citation-fallback"
                       >
                         ⚠ 以上为通用参考信息，暂未匹配到可引用的规章原文，请以学校官方最新通知为准
@@ -568,7 +565,7 @@
 
         <footer class="composer-shell">
           <div class="composer">
-            <div class="quick-prompts">
+            <div v-if="isEmptyConversation" class="quick-prompts">
               <button
                 v-for="sample in quickPrompts"
                 :key="sample"
@@ -578,18 +575,28 @@
                 {{ sample }}
               </button>
             </div>
-            <el-input
-              v-model="prompt"
-              class="composer-input"
-              type="textarea"
-              :autosize="{ minRows: 1, maxRows: 5 }"
-              resize="none"
-              placeholder="输入你的问题…"
-              @keydown.enter.exact.prevent="send"
-            />
-            <div class="composer-actions">
-              <el-button :disabled="!sending" @click="stopGenerating">停止</el-button>
+            <div class="composer-main">
+              <button
+                v-if="!guestMode"
+                type="button"
+                class="composer-upload"
+                aria-label="上传 PDF"
+                data-tooltip="上传 PDF 到本会话知识库"
+                @click="triggerPdfUpload"
+              >
+                ＋
+              </button>
+              <el-input
+                v-model="prompt"
+                class="composer-input"
+                type="textarea"
+                :autosize="{ minRows: 1, maxRows: 5 }"
+                resize="none"
+                placeholder="输入你的问题…"
+                @keydown.enter.exact.prevent="send"
+              />
               <el-button
+                class="composer-send"
                 type="primary"
                 :loading="sending"
                 :disabled="!prompt.trim() || sending"
@@ -597,6 +604,16 @@
                 >发送</el-button
               >
             </div>
+            <div v-if="sending" class="composer-stop">
+              <el-button size="small" :disabled="!sending" @click="stopGenerating">停止</el-button>
+            </div>
+            <input
+              ref="pdfInputRef"
+              type="file"
+              accept="application/pdf"
+              style="display: none"
+              @change="onPdfFileChange"
+            />
           </div>
           <p class="composer-disclaimer">内容由 AI 生成，请以学校最新官方通知为准</p>
         </footer>
@@ -840,6 +857,7 @@ import {
   mergeSessionBranches,
   reactChat,
   refreshJwt,
+  uploadPdf,
   saveSessionState,
   setSessionArchived,
   setSessionPinned,
@@ -943,7 +961,7 @@ interface EvalMetricCard {
 const STORAGE_KEY = 'knowledgeops-agent-react-console-v2';
 const LEGACY_STORAGE_KEY = 'knowledgeops-agent-react-console';
 const DEFAULT_SYSTEM_MESSAGE =
-  '欢迎使用 ReAct 控制台。你可以先输入 API Key 获取 JWT，然后发起带轨迹的问答。';
+  '你好，我是有章。校园规章相关的问题都可以问我，回答会附上制度原文出处。';
 const DEFAULT_WORKSPACE = 'default';
 const ESTIMATED_ROW_HEIGHT = 156;
 const OVERSCAN_COUNT = 8;
@@ -2383,6 +2401,7 @@ function upsertTrace(step: ReactTraceStep): void {
 
 function updateViewport(): void {
   viewportHeight.value = messageContainer.value?.clientHeight ?? 0;
+  isMobile.value = isMobileViewport();
 }
 
 function onMessageScroll(): void {
@@ -2569,6 +2588,31 @@ const retriedAuth = ref(false);
 /** 游客模式：从 token 的 subject 派生（guest-* 前缀），刷新后依然生效。 */
 const sidebarOpen = ref(typeof window !== 'undefined' ? window.innerWidth > 900 : true);
 const isMobileViewport = () => typeof window !== 'undefined' && window.innerWidth <= 900;
+const isMobile = ref(isMobileViewport());
+const pdfInputRef = ref<HTMLInputElement | null>(null);
+const pdfUploading = ref(false);
+
+function triggerPdfUpload(): void {
+  pdfInputRef.value?.click();
+}
+
+async function onPdfFileChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) {
+    return;
+  }
+  pdfUploading.value = true;
+  try {
+    await uploadPdf(activeSessionId.value, file);
+    ElMessage.success('PDF 已提交解析，入库后即可就本文档提问');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '上传失败');
+  } finally {
+    pdfUploading.value = false;
+  }
+}
 const guestMode = computed(() => {
   const t = token.value || '';
   if (!t) return false;
@@ -4657,9 +4701,17 @@ h2 {
 
 /* ── 主区顶栏 ── */
 .workspace-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 12px 28px;
   border-bottom: 1px solid var(--ui-border-soft);
   background: var(--ui-surface);
+}
+
+.workspace-head > div:first-of-type {
+  flex: 1;
+  min-width: 0;
 }
 
 .workspace-head h2 {
@@ -4821,7 +4873,48 @@ h2 {
   border-radius: 14px;
   background: var(--ui-surface);
   box-shadow: var(--ui-shadow);
-  padding: 10px 12px 8px;
+  padding: 8px 10px 6px;
+}
+
+.composer-main {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.composer-main :deep(.composer-input) {
+  flex: 1;
+}
+
+.composer-upload {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 1px dashed var(--ui-border);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 15px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composer-upload:hover {
+  color: var(--ui-accent);
+  border-color: var(--ui-accent-line);
+  background: var(--ui-accent-soft);
+}
+
+.composer-send {
+  flex: none;
+}
+
+.composer-stop {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 2px;
 }
 
 .quick-prompts {
@@ -5090,24 +5183,27 @@ h2 {
 
   /* 输入区收紧 */
   .composer-shell {
-    padding: 6px 10px 10px;
+    padding: 4px 8px 8px;
   }
 
   .composer {
-    padding: 8px 10px 6px;
-    border-radius: 12px;
-  }
-
-  .composer-actions {
-    margin-top: 6px;
+    padding: 6px 8px 5px;
+    border-radius: 11px;
   }
 
   .composer-disclaimer {
-    font-size: 10px;
+    display: none;
   }
 
-  .quick-prompts {
-    margin-bottom: 8px;
+  .composer-send {
+    padding: 0 12px;
+    height: 30px;
+    min-height: 30px;
+  }
+
+  .composer-upload {
+    width: 28px;
+    height: 28px;
   }
 
   /* 评测页纵向堆叠 */

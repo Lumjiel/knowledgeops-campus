@@ -97,6 +97,21 @@ export async function exchangeApiKey(
   return payload;
 }
 
+export async function uploadPdf(chatId: string, file: File, auth?: AuthContext): Promise<void> {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch(resolveApi(`/ingestion/upload/${encodeURIComponent(chatId)}`), {
+    credentials: 'include',
+    method: 'POST',
+    headers: buildAuthHeaders(auth),
+    body: form,
+  });
+  const payload = await parseJsonSafely<{ ok?: number; msg?: string }>(response);
+  if (!response.ok || !payload || payload.ok !== 1) {
+    throw formatHttpError(response.status, payload?.msg ?? 'pdf upload failed');
+  }
+}
+
 /** 游客模式：无需凭证，后端签发低权限短时效 JWT（按 IP 限流）。 */
 export async function exchangeGuestToken(tenantId?: string): Promise<AuthTokenResponse> {
   const response = await fetch(resolveApi('/auth/guest'), {

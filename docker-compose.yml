@@ -27,6 +27,7 @@ services:
       APP_MODEL_ROUTER_MODEL_BALANCED: ${APP_MODEL_ROUTER_MODEL_BALANCED:-qwen-plus}
       APP_MODEL_ROUTER_MODEL_QUALITY: ${APP_MODEL_ROUTER_MODEL_QUALITY:-qwen-max}
       # 切块粒度实验开关：RAG_SPLITCHUNKSIZE（Spring 宽松绑定 -> rag.split.chunk-size）
+      RAG_SIMILARITY_THRESHOLD: ${RAG_SIMILARITY_THRESHOLD:-0.45}
       RAG_SPLIT_CHUNK_SIZE: ${RAG_SPLIT_CHUNK_SIZE:-800}
       RAG_SPLIT_MIN_CHUNK_SIZE: ${RAG_SPLIT_MIN_CHUNK_SIZE:-120}
       # 精排模式：rrf（排名融合）| gte（Cross-Encoder，dashscope gte-rerank）

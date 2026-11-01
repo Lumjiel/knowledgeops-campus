@@ -247,12 +247,13 @@
                       <p v-if="entry.item.state === 'streaming'" class="streaming-plain">
                         {{ entry.item.content }}
                       </p>
-                      <!-- eslint-disable-next-line vue/no-v-html -->
+                      <!-- eslint-disable vue/no-v-html -- 内容经 DOMPurify 消毒 -->
                       <div
                         v-else
                         class="markdown"
                         v-html="renderMarkdown(entry.item.content)"
                       ></div>
+                      <!-- eslint-enable vue/no-v-html -->
                       <div v-if="entry.item.citationCards?.length" class="citation-panel">
                         <p class="citation-title">条款依据</p>
                         <div class="citation-card-list">
@@ -5180,8 +5181,11 @@ h2 {
     backdrop-filter: blur(1px);
   }
 
-  /* 顶栏瘦身 */
+  /* 顶栏固定：滚动时保持可见（豆包/DeepSeek 式） */
   .workspace-head {
+    position: sticky;
+    top: 0;
+    z-index: 50;
     padding: 10px 14px;
   }
 

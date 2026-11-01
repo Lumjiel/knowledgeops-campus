@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'sidebar-closed': !sidebarOpen, 'sidebar-open': sidebarOpen }">
     <aside class="sidebar">
       <div class="brand-block">
         <h1>有章</h1>
@@ -120,6 +120,12 @@
         </button>
       </footer>
     </aside>
+    <div
+      v-if="sidebarOpen"
+      class="sidebar-backdrop"
+      aria-hidden="true"
+      @click="sidebarOpen = false"
+    ></div>
 
     <main class="workspace">
       <header class="workspace-head">
@@ -138,6 +144,14 @@
           </p>
         </div>
         <div v-if="activeView === 'chat'" class="head-actions">
+          <button
+            type="button"
+            class="sidebar-toggle"
+            aria-label="会话列表"
+            @click="sidebarOpen = !sidebarOpen"
+          >
+            ☰
+          </button>
           <el-tag v-if="guestMode" effect="plain" class="guest-chip">游客模式</el-tag>
           <el-tag :type="streamStatusTagType" effect="plain">{{ streamStatusLabel }}</el-tag>
           <span class="stream-detail">{{ streamStatusDetail }}</span>
@@ -2081,10 +2095,18 @@ function loadSession(sessionId: string): void {
     const rootBranch = createRootBranch();
     session.branches = [rootBranch];
     session.activeBranchId = rootBranch.id;
-    messages.value = [...rootBranch.messages];
+    messages.value = [...rootBranch.messages].map((message) =>
+      message.role === 'assistant' && message.state && message.state !== 'done'
+        ? { ...message, state: 'done' }
+        : message,
+    );
     traceSteps.value = [...rootBranch.traceSteps];
   } else {
-    messages.value = [...branch.messages];
+    messages.value = [...branch.messages].map((message) =>
+      message.role === 'assistant' && message.state && message.state !== 'done'
+        ? { ...message, state: 'done' }
+        : message,
+    );
     traceSteps.value = [...branch.traceSteps];
   }
 
@@ -2096,6 +2118,9 @@ function loadSession(sessionId: string): void {
 }
 
 function switchSession(sessionId: string): void {
+  if (isMobileViewport()) {
+    sidebarOpen.value = false;
+  }
   if (sessionId === activeSessionId.value) {
     return;
   }
@@ -2542,6 +2567,8 @@ function clearConversation(): void {
 
 const retriedAuth = ref(false);
 /** 游客模式：从 token 的 subject 派生（guest-* 前缀），刷新后依然生效。 */
+const sidebarOpen = ref(typeof window !== 'undefined' ? window.innerWidth > 900 : true);
+const isMobileViewport = () => typeof window !== 'undefined' && window.innerWidth <= 900;
 const guestMode = computed(() => {
   const t = token.value || '';
   if (!t) return false;
@@ -4934,5 +4961,164 @@ h2 {
 .eval-result-table {
   --el-table-border-color: var(--ui-border-soft);
   --el-table-header-text-color: var(--ui-muted);
+}
+
+/* ════════ 响应式：侧栏抽屉 + 移动端适配 ════════ */
+
+/* 侧栏开关按钮（顶栏） */
+.sidebar-toggle {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-toggle:hover {
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent);
+}
+
+/* 遮罩：仅移动端抽屉打开时显示 */
+.sidebar-backdrop {
+  display: none;
+}
+
+/* ── 桌面：侧栏可完全收起 ── */
+@media (min-width: 901px) {
+  .app-shell {
+    transition: grid-template-columns 0.2s ease;
+  }
+
+  .app-shell.sidebar-closed {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .app-shell.sidebar-closed .sidebar {
+    display: none;
+  }
+}
+
+/* ── 移动端（≤900px）：侧栏变抽屉，整体瘦身 ── */
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    display: block;
+    position: relative;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(78vw, 300px);
+    transform: translateX(-102%);
+    transition: transform 0.22s ease;
+    box-shadow: 0 0 40px rgba(28, 43, 58, 0.18);
+    overflow-y: auto;
+  }
+
+  .app-shell.sidebar-open .sidebar {
+    transform: none;
+  }
+
+  .sidebar-backdrop {
+    display: none;
+  }
+
+  .app-shell.sidebar-open ~ .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(28, 43, 58, 0.35);
+    backdrop-filter: blur(1px);
+  }
+
+  /* 顶栏瘦身 */
+  .workspace-head {
+    padding: 10px 14px;
+  }
+
+  .workspace-kicker,
+  .workspace-sub,
+  .stream-detail {
+    display: none;
+  }
+
+  .workspace-head h2 {
+    font-size: 13.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 46vw;
+  }
+
+  .brand-sub {
+    display: none;
+  }
+
+  .brand-block h1 {
+    font-size: 14px;
+  }
+
+  /* 消息区：卡片自适应铺满 */
+  .message-row,
+  .thinking,
+  .hydration-skeleton,
+  .welcome-block,
+  .empty-hint {
+    max-width: 100%;
+    padding: 0 12px 14px;
+  }
+
+  .bubble {
+    padding: 11px 13px;
+    border-radius: 12px;
+  }
+
+  .message-row.user .bubble {
+    border-radius: 12px 12px 4px 12px;
+  }
+
+  /* 输入区收紧 */
+  .composer-shell {
+    padding: 6px 10px 10px;
+  }
+
+  .composer {
+    padding: 8px 10px 6px;
+    border-radius: 12px;
+  }
+
+  .composer-actions {
+    margin-top: 6px;
+  }
+
+  .composer-disclaimer {
+    font-size: 10px;
+  }
+
+  .quick-prompts {
+    margin-bottom: 8px;
+  }
+
+  /* 评测页纵向堆叠 */
+  .evaluation-page {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .eval-side-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--ui-border-soft);
+  }
 }
 </style>

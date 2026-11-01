@@ -97,6 +97,22 @@ export async function exchangeApiKey(
   return payload;
 }
 
+/** 游客模式：无需凭证，后端签发低权限短时效 JWT（按 IP 限流）。 */
+export async function exchangeGuestToken(tenantId?: string): Promise<AuthTokenResponse> {
+  const response = await fetch(resolveApi('/auth/guest'), {
+    credentials: 'include',
+    method: 'POST',
+    headers: {
+      ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),
+    },
+  });
+  const payload = await parseJsonSafely<AuthTokenResponse>(response);
+  if (!response.ok || !payload || payload.ok !== 1) {
+    throw formatHttpError(response.status, payload?.msg ?? 'guest token failed');
+  }
+  return payload;
+}
+
 export async function refreshJwt(refreshToken: string): Promise<AuthTokenResponse> {
   const response = await fetch(resolveApi('/auth/refresh'), {
     credentials: 'include',

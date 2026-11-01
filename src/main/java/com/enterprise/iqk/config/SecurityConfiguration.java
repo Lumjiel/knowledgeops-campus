@@ -48,7 +48,7 @@ public class SecurityConfiguration {
                     .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                     .requestMatchers("/actuator/prometheus").hasAnyAuthority("PERM_METRICS_READ", "ROLE_ADMIN", "ROLE_OPS")
                     .requestMatchers(HttpMethod.GET, "/audit/logs").hasAnyAuthority("PERM_AUDIT_READ", "ROLE_ADMIN", "ROLE_OPS")
-                    .requestMatchers(HttpMethod.POST, "/auth/token", "/auth/refresh").permitAll()
+                    .requestMatchers(HttpMethod.POST, "/auth/token", "/auth/refresh", "/auth/guest").permitAll()
                     .requestMatchers(HttpMethod.POST, "/auth/api-keys/**").hasAnyAuthority("PERM_AUTH_KEY_MANAGE", "ROLE_ADMIN")
                     .requestMatchers(HttpMethod.POST, "/ai/chat", "/ai/chat/stream", "/ai/service").hasAnyAuthority("PERM_CHAT_WRITE", "ROLE_ADMIN")
                     .requestMatchers(HttpMethod.POST, "/ai/react/chat", "/ai/react/chat/stream").hasAnyAuthority("PERM_CHAT_WRITE", "ROLE_ADMIN")

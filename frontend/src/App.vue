@@ -138,6 +138,7 @@
           </p>
         </div>
         <div v-if="activeView === 'chat'" class="head-actions">
+          <el-tag v-if="guestMode" effect="plain" class="guest-chip">游客模式</el-tag>
           <el-tag :type="streamStatusTagType" effect="plain">{{ streamStatusLabel }}</el-tag>
           <span class="stream-detail">{{ streamStatusDetail }}</span>
           <span v-if="costSummary" class="stream-detail"
@@ -813,6 +814,7 @@ import {
   compareSessionBranches,
   createEvalDataset,
   exchangeApiKey,
+  exchangeGuestToken,
   exportEvalRunReport,
   getEvalComparison,
   getTenantCostSummary,
@@ -2526,6 +2528,23 @@ function clearConversation(): void {
   persistState();
 }
 
+const guestMode = ref(false);
+
+/** 游客模式自动登录：无 token 且未配置 API Key 时静默换取低权限短时效 JWT。 */
+async function guestAutoLogin(): Promise<void> {
+  if (token.value || apiKeyInput.value.trim()) {
+    return;
+  }
+  try {
+    const auth = await exchangeGuestToken(tenantInput.value.trim() || undefined);
+    token.value = auth.token ?? '';
+    guestMode.value = Boolean(token.value);
+    persistState();
+  } catch {
+    // 游客 token 不可用（限流/后端不可达）时保持静默，用户仍可手动配置 API Key
+  }
+}
+
 async function handleLogin(): Promise<void> {
   if (!apiKeyInput.value.trim()) {
     ElMessage.warning('请先输入 API Key');
@@ -2849,6 +2868,7 @@ onMounted(() => {
   loadSession(activeSessionId.value);
   updateViewport();
   void loadMemoryHint();
+  void guestAutoLogin();
 
   if (typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver((entries) => {
@@ -4369,6 +4389,11 @@ h2 {
   height: 100vh;
   grid-template-columns: 264px minmax(0, 1fr);
   background: var(--ui-paper);
+}
+
+/* 游客模式标识 */
+.guest-chip {
+  --el-tag-font-size: 11px;
 }
 
 /* ── 侧栏 ── */

@@ -54,6 +54,12 @@ public class JwtService {
     }
 
     public String issueToken(String subject, List<String> roles, List<String> permissions, String tenantId) {
+        return issueToken(subject, roles, permissions, tenantId, securityProperties.getJwtExpireMinutes());
+    }
+
+    /** 带自定义有效期的签发（游客模式等短时效场景）。 */
+    public String issueToken(String subject, List<String> roles, List<String> permissions, String tenantId,
+                             long expireMinutes) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(subject)
@@ -61,7 +67,7 @@ public class JwtService {
                 .claim("permissions", permissions == null ? Collections.emptyList() : permissions)
                 .claim("tenant_id", TenantContext.normalize(tenantId))
                 .issuedAt(Date.from(now))
-                .expiration(Date.from(now.plusSeconds(securityProperties.getJwtExpireMinutes() * 60L)))
+                .expiration(Date.from(now.plusSeconds(expireMinutes * 60L)))
                 .signWith(secretKey())
                 .compact();
     }

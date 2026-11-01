@@ -77,6 +77,60 @@ public class AuthController {
         return buildTokenResponse(token, identityTenant, refreshIssue);
     }
 
+    /**
+     * 游客模式：无需任何凭证，签发低权限短时效 JWT（仅 chat/session/feedback 读写）。
+     * 面向"打开即可体验"的演示与校内服务场景；按 IP 限流防滥用。
+     */
+    @PostMapping("/guest")
+    public AuthTokenVO guest(jakarta.servlet.http.HttpServletRequest request) {
+        String clientIp = clientIpOf(request);
+        if (!guestLimiterTryAcquire(clientIp)) {
+            return AuthTokenVO.builder().ok(0).msg("too many guest tokens from this ip, try later").build();
+        }
+        String principal = "guest-" + Integer.toHexString(java.util.Objects
+                .hash(clientIp, java.time.LocalDate.now().toString()));
+        List<String> guestPermissions = List.of(
+                "chat:read", "chat:write", "session:read", "session:write", "feedback:write");
+        String token = jwtService.issueToken(principal, List.of("GUEST"), guestPermissions, "public", 120L);
+        return AuthTokenVO.builder()
+                .ok(1)
+                .msg("ok")
+                .token(token)
+                .tenantId("public")
+                .build();
+    }
+
+    private static final int GUEST_LIMIT_PER_HOUR = 30;
+    private final java.util.concurrent.ConcurrentHashMap<String, long[]> guestCounters =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 每 IP 每小时最多 GUEST_LIMIT_PER_HOUR 个游客 token（固定窗口）。 */
+    private synchronized boolean guestLimiterTryAcquireInternal(String ip) {
+        long hour = System.currentTimeMillis() / 3_600_000L;
+        long[] counter = guestCounters.computeIfAbsent(ip, k -> new long[]{hour, 0});
+        if (counter[0] != hour) {
+            counter[0] = hour;
+            counter[1] = 0;
+        }
+        if (counter[1] >= GUEST_LIMIT_PER_HOUR) {
+            return false;
+        }
+        counter[1]++;
+        if (guestCounters.size() > 10_000) {
+            guestCounters.clear();
+        }
+        return true;
+    }
+
+    private boolean guestLimiterTryAcquire(String ip) {
+        return guestLimiterTryAcquireInternal(ip);
+    }
+
+    private String clientIpOf(jakarta.servlet.http.HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        return StringUtils.hasText(forwarded) ? forwarded.split(",")[0].trim() : request.getRemoteAddr();
+    }
+
     @PostMapping("/refresh")
     public AuthTokenVO refresh(@RequestHeader(value = "X-Refresh-Token", required = false) String refreshTokenHeader,
                               @CookieValue(value = REFRESH_COOKIE, required = false) String refreshCookie) {

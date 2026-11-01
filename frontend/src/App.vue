@@ -244,8 +244,15 @@
                       <div></div>
                     </div>
                     <div v-else>
+                      <p v-if="entry.item.state === 'streaming'" class="streaming-plain">
+                        {{ entry.item.content }}
+                      </p>
                       <!-- eslint-disable-next-line vue/no-v-html -->
-                      <div class="markdown" v-html="renderMarkdown(entry.item.content)"></div>
+                      <div
+                        v-else
+                        class="markdown"
+                        v-html="renderMarkdown(entry.item.content)"
+                      ></div>
                       <div v-if="entry.item.citationCards?.length" class="citation-panel">
                         <p class="citation-title">条款依据</p>
                         <div class="citation-card-list">
@@ -2960,11 +2967,33 @@ watch([modelProfile, streaming, workspaceFilter, showArchivedSessions, sessionSe
   persistState();
 });
 
+let syncPersistTimer: number | undefined;
+let lastSyncPersistAt = 0;
+
+/** 流式期间 messages 高频变化：sync+localStorage 全量序列化必须节流（400ms 尾随），否则手机端主线程被打满。 */
+function scheduleSyncPersist(): void {
+  const now = Date.now();
+  if (now - lastSyncPersistAt >= 400) {
+    lastSyncPersistAt = now;
+    syncCurrentSessionBranch();
+    persistState();
+    return;
+  }
+  if (syncPersistTimer !== undefined) {
+    return;
+  }
+  syncPersistTimer = window.setTimeout(() => {
+    syncPersistTimer = undefined;
+    lastSyncPersistAt = Date.now();
+    syncCurrentSessionBranch();
+    persistState();
+  }, 400);
+}
+
 watch(
   [messages, traceSteps],
   () => {
-    syncCurrentSessionBranch();
-    persistState();
+    scheduleSyncPersist();
   },
   { deep: true },
 );
@@ -4524,6 +4553,13 @@ h2 {
   height: 100vh;
   grid-template-columns: 264px minmax(0, 1fr);
   background: var(--ui-paper);
+}
+
+/* 流式中的纯文本渲染（完成后才转 markdown，避免逐 token 全量重渲染） */
+.streaming-plain {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* 游客模式标识 */

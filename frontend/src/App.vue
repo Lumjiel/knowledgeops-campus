@@ -253,7 +253,9 @@
                               @click="toggleCitationCard(`${entry.item.id}-${card.index}`)"
                             >
                               <span class="citation-card-index">[{{ card.index }}]</span>
-                              <span class="citation-card-file">{{ prettyFileName(card.file) }}</span>
+                              <span class="citation-card-file">{{
+                                prettyFileName(card.file)
+                              }}</span>
                               <span v-if="card.page != null" class="citation-card-page"
                                 >· P{{ card.page }}</span
                               >
@@ -1180,10 +1182,12 @@ function questionKeywords(question: string | undefined): string[] {
  */
 function prettyFileName(raw: string | undefined): string {
   if (!raw) return '规章制度';
-  return raw
-    .replace(/\.pdf$/i, '')
-    .replace(/[_-]+/g, ' ')
-    .trim() || '规章制度';
+  return (
+    raw
+      .replace(/\.pdf$/i, '')
+      .replace(/[_-]+/g, ' ')
+      .trim() || '规章制度'
+  );
 }
 
 function renderSnippet(snippet: string, question?: string): string {
@@ -2554,7 +2558,10 @@ async function ensureCredential(): Promise<boolean> {
   token.value = '';
   if (apiKeyInput.value.trim()) {
     try {
-      const auth = await exchangeApiKey(apiKeyInput.value.trim(), tenantInput.value.trim() || undefined);
+      const auth = await exchangeApiKey(
+        apiKeyInput.value.trim(),
+        tenantInput.value.trim() || undefined,
+      );
       token.value = auth.token ?? '';
       persistState();
       if (token.value) {

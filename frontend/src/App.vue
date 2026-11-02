@@ -838,6 +838,7 @@
         <el-button size="small" type="danger" plain @click="clearConversation"
           >清空当前会话</el-button
         >
+        <el-button size="small" @click="resetLocalState">重置本地数据</el-button>
         <el-button size="small" type="primary" @click="settingsOpen = false">完成</el-button>
       </template>
     </el-dialog>
@@ -1412,9 +1413,29 @@ function renderMarkdown(content: string): string {
   });
 }
 
-const cached = safeParse(localStorage.getItem(STORAGE_KEY));
-const legacy = safeParse(localStorage.getItem(LEGACY_STORAGE_KEY));
-const bootstrap = Object.keys(cached).length > 0 ? cached : legacy;
+/**
+ * 本地存储 schema 版本：代码结构变更时 +1，启动时版本不符的旧状态会被整体丢弃，
+ * 避免旧版本写入的状态与新代码不兼容导致启动挂起（2026-11-02 转圈事故的根治）。
+ */
+const STORAGE_SCHEMA_VERSION = 3;
+
+function readBootstrap(): Record<string, unknown> {
+  const stored = safeParse(localStorage.getItem(STORAGE_KEY));
+  if (Object.keys(stored).length === 0) {
+    return safeParse(localStorage.getItem(LEGACY_STORAGE_KEY));
+  }
+  if (stored.schemaVersion !== STORAGE_SCHEMA_VERSION) {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // 隐私模式等场景下 removeItem 可能失败，忽略即可（本次会话用全新状态）
+    }
+    return {};
+  }
+  return stored;
+}
+
+const bootstrap = readBootstrap();
 
 const darkMode = ref(Boolean(bootstrap.darkMode));
 const activeView = ref<ConsoleView>(bootstrap.activeView === 'evaluation' ? 'evaluation' : 'chat');
@@ -1427,14 +1448,33 @@ const sessionSearch = ref((bootstrap.sessionSearch as string | undefined) ?? '')
 const workspaceFilter = ref((bootstrap.workspaceFilter as string | undefined) ?? 'all');
 const showArchivedSessions = ref(Boolean(bootstrap.showArchivedSessions));
 
-const sessions = ref<SessionRecord[]>(
-  Array.isArray(bootstrap.sessions) && bootstrap.sessions.length > 0
-    ? (bootstrap.sessions as unknown[]).map((item) => normalizeSession(item))
-    : [createSession()],
-);
+/** 会话恢复兜底：坏数据不允许阻断启动，最多丢本地草稿（云端已同步的不受影响）。 */
+function safeInitSessions(source: Record<string, unknown>): SessionRecord[] {
+  try {
+    if (Array.isArray(source.sessions) && source.sessions.length > 0) {
+      const normalized = (source.sessions as unknown[]).map((item) => normalizeSession(item));
+      if (normalized.length > 0) {
+        return normalized;
+      }
+    }
+  } catch {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }
+  return [createSession()];
+}
 
+const sessions = ref<SessionRecord[]>(safeInitSessions(bootstrap));
+
+const bootActiveSessionId =
+  typeof bootstrap.activeSessionId === 'string' ? bootstrap.activeSessionId : '';
 const activeSessionId = ref(
-  (bootstrap.activeSessionId as string | undefined) ?? sessions.value[0].id,
+  sessions.value.some((session) => session.id === bootActiveSessionId)
+    ? bootActiveSessionId
+    : sessions.value[0].id,
 );
 
 const activeSession = computed(() => {
@@ -1744,6 +1784,7 @@ function persistState(): void {
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
+      schemaVersion: STORAGE_SCHEMA_VERSION,
       darkMode: darkMode.value,
       activeView: activeView.value,
       apiKey: apiKeyInput.value,
@@ -2728,6 +2769,24 @@ function clearAuth(): void {
   costSummary.value = null;
   ElMessage.success('鉴权状态已清空');
   persistState();
+}
+
+/** 逃生门：本地状态异常（转圈/白屏/数据错乱）时一键清空重来。 */
+function resetLocalState(): void {
+  if (
+    !window.confirm(
+      '确定清除本地缓存并重新加载？当前设备的未同步会话将丢失（已同步云端的不受影响）。',
+    )
+  ) {
+    return;
+  }
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+  window.location.reload();
 }
 
 function sanitizeMessageStates(): void {

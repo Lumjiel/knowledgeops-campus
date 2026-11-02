@@ -58,7 +58,7 @@ public record CitationCard(
 
 | 位置 | 现在 | 改成 |
 |---|---|---|
-| `App.vue:5` `.eyebrow` | KnowledgeOps Agent | 校园规章问答 |
+| `App.vue:5` `.eyebrow` | 原平台品牌名 | 校园规章问答 |
 | `App.vue:7` `.brand-sub` | 面向知识运营团队的 ReAct 工作台 | 南京工程学院 · 学生手册 2023 版 |
 | 导航第 2 项 | RAG Evaluation | 检索评测 |
 | 评测面板表头 | Dataset / Baseline / Current / Citation / Latency 等英文 | 数据集 / 基线 / 当前 / 引用覆盖 / 延迟 |
@@ -175,7 +175,7 @@ BM25 粗排   62      20      9ms
 | 3 | `grep -c "旷课 50 学时会被怎么处分" frontend/src/App.vue` | ≥ 1 |
 | 4 | `grep -c "citationCards" frontend/src/App.vue` | ≥ 2 |
 | 5 | `grep -c "检索评测" frontend/src/App.vue` | ≥ 1 |
-| 6 | `grep -c "KnowledgeOps Agent" frontend/src/App.vue` | **0** |
+| 6 | `grep -ci "knowledgeops" frontend/src/App.vue` | **0** |
 | 7 | `mvn -q compile` | 退出码 0 |
 | 8 | `mvn -q test` | BUILD SUCCESS，Failures 0 |
 | 9 | `git diff --stat frontend/src/App.vue` | 行数变化 < 800（大改说明重写了，不合格） |

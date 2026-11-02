@@ -77,7 +77,7 @@ docker compose -f docker-compose.lite.yml restart app
 > spec-D 预判了 3 个坑（volume / MySQL ready / 预置语料），实际部署踩了 6 个。
 > 以下全部是**真实发生并已修复**的，按暴露顺序。
 
-### 坑 1 · Flyway V17 迁移必然失败（上游 bug）
+### 坑 1 · Flyway V17 迁移必然失败（基线自带 bug）
 
 ```
 Migration V17__course_school_tenant_isolation.sql failed

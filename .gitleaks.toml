@@ -1,0 +1,5 @@
+# 学习手册中的命令示例包含 "X-API-Key: $API_KEY" 这类占位写法，
+# 被 generic-api-key / curl-auth-header 规则误判，排除文档目录。
+[allowlist]
+description = "docs 中的示例命令与占位符"
+paths = ['''docs/学习手册/.*''']

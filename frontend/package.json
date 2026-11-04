@@ -13,7 +13,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,vue,css}\"",
     "type-check": "vue-tsc --noEmit",
     "typecheck": "vue-tsc --noEmit",
-    "ci": "npm run lint && npm run format:check && npm run typecheck"
+    "ci": "npm run lint && npm run format:check && npm run typecheck",
+    "test": "vitest run"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

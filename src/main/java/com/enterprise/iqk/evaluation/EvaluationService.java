@@ -175,6 +175,7 @@ public class EvaluationService {
      * FAILED with the root cause in {@code errorMessage} (already-inserted
      * per-case results are kept) and the error is rethrown.
      */
+    @SuppressWarnings("PMD.CloseResource") // finally 中已有 shutdown()；项目编译目标 17，ExecutorService 尚无 AutoCloseable
     public EvalRunVO triggerRun(String tenantId, String datasetId, EvalRunRequestVO request) {
         String tenant = TenantContext.normalize(tenantId);
         EvalDatasetRecord dataset = requireDataset(tenant, datasetId);
@@ -208,12 +209,12 @@ public class EvaluationService {
                 .build();
         evalRunMapper.insert(run);
 
+        long runDeadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(RUN_DEADLINE_SECONDS);
         ExecutorService ragExecutor = Executors.newCachedThreadPool(runnable -> {
             Thread thread = new Thread(runnable, "eval-rag-call");
             thread.setDaemon(true);
             return thread;
         });
-        long runDeadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(RUN_DEADLINE_SECONDS);
         try {
             List<EvalResultRecord> results = new ArrayList<>(cases.size());
             for (int i = 0; i < cases.size(); i++) {

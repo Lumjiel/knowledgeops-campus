@@ -480,11 +480,21 @@ function fromBase64(value: string): string {
  * 原始代码经 Base64 编码塞进 data-code 属性（escapeHtml 转义防属性逃逸），
  * 点击时由 handleMarkdownClick 事件代理解码复制。模块级初始化，仅执行一次。
  */
+/** 代码块语言标签归一化：常见短别名 → 规范名（仅用于展示，高亮仍用原始 lang） */
+const CODE_LANG_LABELS: Record<string, string> = {
+  js: 'javascript',
+  ts: 'typescript',
+  py: 'python',
+  sh: 'shell',
+  rb: 'ruby',
+};
+
 const renderer = new marked.Renderer();
 renderer.code = ((token: { text: string; lang?: string }) => {
   const rawCode = token.text ?? '';
   const lang = token.lang?.trim().toLowerCase().split(/\s+/)[0] ?? 'plaintext';
   const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+  const langLabel = CODE_LANG_LABELS[language] ?? language;
   const highlighted =
     language === 'plaintext'
       ? escapeHtml(rawCode)
@@ -500,7 +510,7 @@ renderer.code = ((token: { text: string; lang?: string }) => {
 
   const payload = escapeHtml(toBase64(rawCode));
 
-  return `<div class="code-block"><div class="code-toolbar"><span class="code-lang">${language}</span><button class="copy-code-btn" type="button" data-code="${payload}">复制代码</button></div><pre><code class="hljs language-${language}">${numbered}</code></pre></div>`;
+  return `<div class="code-block"><div class="code-toolbar"><span class="code-lang">${langLabel}</span><button class="copy-code-btn" type="button" data-code="${payload}">复制代码</button></div><pre><code class="hljs language-${language}">${numbered}</code></pre></div>`;
 }) as typeof renderer.code;
 
 marked.use({
@@ -628,7 +638,8 @@ function formatTime(value: number): string {
 
 /** 引用卡片 → 「展开原文」所需的定位文案（source 文件名 + chunk 下标） */
 function citationTextOf(card: ChatCitationCard): string {
-  return `source=${card.file}.pdf, chunk=${card.chunkIndex}`;
+  const file = /\.pdf$/i.test(card.file) ? card.file : `${card.file}.pdf`;
+  return `source=${file}, chunk=${card.chunkIndex}`;
 }
 
 /** 消息是否携带任一形式的引用来源（条款卡片或来源 chips），决定是否显示无依据兜底条 */

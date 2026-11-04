@@ -295,12 +295,16 @@ describe('dataset list rendering', () => {
     const wrapper = await mountWithDatasets();
     vi.mocked(getEvalComparison).mockClear();
     const buttons = wrapper.findAll('.eval-dataset-list button');
+    // wrapper.emitted() 无法清空：挂载自动选中已产生 emit，故记录基线后断言增量
+    const persistBefore = wrapper.emitted('persist')?.length ?? 0;
 
     await buttons[1].trigger('click');
     await flushPromises();
 
-    expect(wrapper.emitted('update:selectedDatasetId')![0]).toEqual(['ds-2']);
-    expect(wrapper.emitted('persist')).toHaveLength(1);
+    // 加载时组件会自动选中首个数据集（emit ds-1），点击 ds-2 是最后一次 emit
+    const emissions = wrapper.emitted('update:selectedDatasetId') ?? [];
+    expect(emissions.at(-1)).toEqual(['ds-2']);
+    expect(wrapper.emitted('persist')!.length).toBe(persistBefore + 1);
     expect(getEvalComparison).toHaveBeenCalledWith('ds-2', expect.anything());
     // 本地镜像同 tick 可读（不依赖父组件回传）
     expect(vmOf(wrapper).selectedDatasetId).toBe('ds-2');

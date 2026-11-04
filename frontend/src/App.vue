@@ -46,11 +46,8 @@
         </div>
         <div v-else>
           <p class="workspace-kicker">检索评测</p>
-          <h2>{{ evalPanel?.selectedDataset?.name || '评测工作台' }}</h2>
-          <p class="workspace-sub">
-            {{ evalPanel?.currentRun?.runId || 'no run' }} ·
-            {{ evalPanel?.currentRun?.status || 'idle' }}
-          </p>
+          <h2>评测工作台</h2>
+          <p class="workspace-sub">数据集 / 运行 / 基线对比</p>
         </div>
         <div v-if="activeView === 'chat'" class="head-actions">
           <el-tag v-if="guestMode" effect="plain" class="guest-chip">游客模式</el-tag>
@@ -63,29 +60,7 @@
           >
           <el-button size="small" text @click="settingsOpen = true">设置</el-button>
         </div>
-        <div v-else class="head-actions">
-          <el-button size="small" :loading="evalPanel?.loading" @click="evalPanel?.loadDatasets()"
-            >刷新</el-button
-          >
-          <el-button
-            size="small"
-            type="primary"
-            :loading="evalPanel?.running"
-            :disabled="!evalPanel?.selectedDatasetId"
-            @click="evalPanel?.runSelected()"
-            >运行评测</el-button
-          >
-          <el-button
-            size="small"
-            :disabled="!evalPanel?.currentRun"
-            :loading="evalPanel?.exporting"
-            @click="evalPanel?.exportReport()"
-            >导出报告</el-button
-          >
-          <el-button size="small" :disabled="!evalPanel?.currentRun" @click="evalPanel?.markBaseline()"
-            >设为基线</el-button
-          >
-        </div>
+        <!-- 评测视图的操作按钮由 EvaluationPanel 组件自带（loadDatasets/runSelected/exportReport/markBaseline） -->
       </header>
 
       <template v-if="activeView === 'chat'">

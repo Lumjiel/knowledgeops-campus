@@ -11,10 +11,12 @@ import com.enterprise.iqk.service.TenantCostService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.enterprise.iqk.agent.harness.AgentObservation;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.ChatOptions;
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -34,11 +37,53 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Workflow-backed ReAct agent service (Reason + Act loop).
+ *
+ * <p>Implements the blocking chat flow and the SSE streaming flow on top of
+ * {@link AgentWorkflowEngine}, which persists task/step records and status
+ * transitions for observability. Each turn runs at most {@value #MAX_STEPS}
+ * planner steps: the LLM planner returns a JSON decision, the chosen action is
+ * executed through {@link AgentHarnessService}, and its observation is folded
+ * into a rolling context that feeds the next planning step.</p>
+ *
+ * <p>Failure policy is degrade-not-fail: planner or parse errors fall back to
+ * a deterministic keyword-based decision ({@link #fallbackDecision}), and a
+ * missing final answer falls back to a canned summary. Tenant budget is
+ * enforced per model call via {@link TenantCostService}; task metrics are
+ * recorded per outcome via Micrometer.</p>
+ */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class WorkflowReactAgentService {
 
+    /** Hard upper bound of ReAct steps per request; step 5+ maps to WRITING. */
     private static final int MAX_STEPS = 6;
+
+    /**
+     * Wall-clock budget for one ReAct turn's plan/act loop. When exceeded the
+     * loop stops planning and degrades to summarization instead of failing,
+     * so a slow tool/model cannot stretch a turn indefinitely.
+     */
+    private static final long LOOP_DEADLINE_MS = 50_000L;
+
+    /**
+     * Idle timeout applied to the streaming final-answer model call: a stream
+     * that stays silent (between signals) for longer is failed with a
+     * {@code TimeoutException} and surfaces as an SSE {@code error} event.
+     */
+    private static final Duration STREAM_IDLE_TIMEOUT = Duration.ofSeconds(60);
+
+    /**
+     * Upper bound of the rolling context folded into planning/final prompts;
+     * once exceeded the oldest observations are truncated so prompt size
+     * stays bounded regardless of observation payload size.
+     */
+    private static final int MAX_ROLLING_CONTEXT_CHARS = 12_000;
+
+    /** Canned answer used when final summarization is unavailable or blank. */
+    private static final String CANNED_FALLBACK_ANSWER = "当前未能生成最终答案，请稍后重试。";
 
     private final AgentWorkflowEngine workflowEngine;
     private final AgentHarnessService agentHarnessService;
@@ -48,6 +93,28 @@ public class WorkflowReactAgentService {
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
 
+    /**
+     * Runs the blocking ReAct loop for one user turn.
+     *
+     * <p>Starts a {@code REACT} workflow task, then iterates up to
+     * {@value #MAX_STEPS} plan/act steps. When the planner decides
+     * {@code finish} with a non-blank answer that answer is used directly,
+     * otherwise a summarization model call produces the final answer; the same
+     * summarization runs when the step budget is exhausted. Every step is
+     * mirrored into the workflow engine (step records, status transitions,
+     * task metrics).</p>
+     *
+     * @param request prompt, chatId and optional model profile; must pass
+     *                request validation (prompt and chatId required)
+     * @return final answer with trace steps, deduplicated citations/evidence
+     *         collected from observations, and model-route/experiment metadata
+     * @throws IllegalArgumentException if prompt or chatId is blank
+     * @throws IllegalStateException    if the workflow engine or model router
+     *                                  return a null/blank record (task, step
+     *                                  or route decision) for this turn
+     * @throws RuntimeException         re-thrown after the task is marked
+     *                                  {@code FAILED} in the workflow engine
+     */
     public ReactChatResponseVO chat(ReactChatRequestVO request) {
         validateRequest(request);
         String tenantId = currentTenantId();
@@ -56,18 +123,36 @@ public class WorkflowReactAgentService {
         AgentTaskRecord task = workflowEngine.startTask(
                 tenantId, "REACT", request.getPrompt(),
                 request.getModelProfile(), request.getChatId(), null);
+        if (task == null || !StringUtils.hasText(task.getTaskId())) {
+            throw new IllegalStateException("workflow engine returned no task record for REACT turn"
+                    + " (chatId=" + request.getChatId() + ", tenantId=" + tenantId + ")");
+        }
 
         ModelRouter.ModelRouteDecision routeDecision = resolveRouteDecision(
                 request.getModelProfile(), "react", request.getChatId(), tenantId);
+        if (routeDecision == null) {
+            throw new IllegalStateException("model router returned no route decision for REACT turn"
+                    + " (chatId=" + request.getChatId() + ", taskId=" + task.getTaskId() + ")");
+        }
 
         List<ReactTraceStepVO> trace = new ArrayList<>();
         String rollingContext = "";
 
         try {
             for (int stepNum = 1; stepNum <= MAX_STEPS; stepNum++) {
+                if (stepNum > 1 && elapsedMs(startedNs) > LOOP_DEADLINE_MS) {
+                    log.warn("ReAct loop deadline exceeded (taskId={}, chatId={}, completedSteps={}, elapsed={}ms);"
+                                    + " degrading to summarization instead of planning further",
+                            task.getTaskId(), request.getChatId(), stepNum - 1, elapsedMs(startedNs));
+                    break;
+                }
                 AgentStepRecord stepRecord = workflowEngine.startStep(
                         task.getTaskId(), "planner", stepNum,
                         Map.of("prompt", request.getPrompt(), "rollingContext", rollingContext));
+                if (stepRecord == null || !StringUtils.hasText(stepRecord.getStepId())) {
+                    throw new IllegalStateException("workflow engine returned no step record for step " + stepNum
+                            + " (taskId=" + task.getTaskId() + ")");
+                }
 
                 long stepStartNs = System.nanoTime();
                 ReasonDecision decision = reason(request, rollingContext, trace, routeDecision, tenantId);
@@ -111,12 +196,42 @@ public class WorkflowReactAgentService {
             return success(request.getChatId(), answer, trace, routeDecision, task.getTaskId());
 
         } catch (RuntimeException e) {
-            workflowEngine.failTask(task.getTaskId(), e.getMessage());
-            workflowEngine.recordTaskMetrics("REACT", "FAILED", elapsedMs(startedNs));
+            // e.getMessage() can be null (e.g. NPE); persist the exception type
+            // so the stored failure reason is never blank.
+            String reason = StringUtils.hasText(e.getMessage())
+                    ? e.getMessage()
+                    : e.getClass().getSimpleName() + " (no message)";
+            try {
+                workflowEngine.failTask(task.getTaskId(), reason);
+                workflowEngine.recordTaskMetrics("REACT", "FAILED", elapsedMs(startedNs));
+            } catch (RuntimeException cleanupEx) {
+                // Failure bookkeeping must never mask the original cause.
+                log.error("Failed to mark REACT task {} as FAILED after: {}",
+                        task.getTaskId(), reason, cleanupEx);
+                e.addSuppressed(cleanupEx);
+            }
             throw e;
         }
     }
 
+    /**
+     * Runs the streaming ReAct flow and emits an SSE event sequence:
+     * one {@code trace} event per executed step, then {@code token} events of
+     * the final answer, then a {@code done} event carrying the full
+     * {@link ReactChatResponseVO}, or an {@code error} event on failure.
+     *
+     * <p>All workflow mutations are deferred until subscription. The final
+     * answer streams directly from the model unless the planner produced a
+     * non-blank {@code finish} answer, which is emitted as a single token.
+     * On any error the task is marked {@code FAILED} (so it cannot stay
+     * orphaned in a non-terminal state) and the error is surfaced as an SSE
+     * event instead of a reactor error signal. Latency/request metrics are
+     * recorded in {@code doFinally} regardless of outcome.</p>
+     *
+     * @param request prompt, chatId and optional model profile; validation
+     *                happens on subscription
+     * @return SSE-encoded {@code Flux<String>} as described above
+     */
     public Flux<String> stream(ReactChatRequestVO request) {
         long startedNs = System.nanoTime();
         AtomicReference<Long> firstTokenMs = new AtomicReference<>(null);
@@ -130,19 +245,37 @@ public class WorkflowReactAgentService {
             AgentTaskRecord task = workflowEngine.startTask(
                     tenantId, "REACT_STREAM", request.getPrompt(),
                     request.getModelProfile(), request.getChatId(), null);
+            if (task == null || !StringUtils.hasText(task.getTaskId())) {
+                throw new IllegalStateException("workflow engine returned no task record for REACT_STREAM turn"
+                        + " (chatId=" + request.getChatId() + ", tenantId=" + tenantId + ")");
+            }
             taskIdRef.set(task.getTaskId());
 
             ModelRouter.ModelRouteDecision routeDecision = resolveRouteDecision(
                     request.getModelProfile(), "react", request.getChatId(), tenantId);
+            if (routeDecision == null) {
+                throw new IllegalStateException("model router returned no route decision for REACT_STREAM turn"
+                        + " (chatId=" + request.getChatId() + ", taskId=" + task.getTaskId() + ")");
+            }
 
             List<ReactTraceStepVO> trace = new ArrayList<>();
             String rollingContext = "";
             String directAnswer = "";
 
             for (int stepNum = 1; stepNum <= MAX_STEPS; stepNum++) {
+                if (stepNum > 1 && elapsedMs(startedNs) > LOOP_DEADLINE_MS) {
+                    log.warn("ReAct stream loop deadline exceeded (taskId={}, chatId={}, completedSteps={}, elapsed={}ms);"
+                                    + " skipping to final answer",
+                            task.getTaskId(), request.getChatId(), stepNum - 1, elapsedMs(startedNs));
+                    break;
+                }
                 AgentStepRecord stepRecord = workflowEngine.startStep(
                         task.getTaskId(), "planner", stepNum,
                         Map.of("prompt", request.getPrompt()));
+                if (stepRecord == null || !StringUtils.hasText(stepRecord.getStepId())) {
+                    throw new IllegalStateException("workflow engine returned no step record for step " + stepNum
+                            + " (taskId=" + task.getTaskId() + ")");
+                }
 
                 long stepStartNs = System.nanoTime();
                 ReasonDecision decision = reason(request, rollingContext, trace, routeDecision, tenantId);
@@ -178,7 +311,11 @@ public class WorkflowReactAgentService {
                     : callModelStream(
                     "你是企业级AI助手，请结合轨迹和观察信息给出最终答案。",
                     buildFinalPrompt(request, trace, rollingContext),
-                    routeDecision, tenantId, "react_final");
+                    routeDecision, tenantId, "react_final")
+                    // A silent model stream must not hang the SSE connection:
+                    // inter-signal timeout fails it into the error-event path,
+                    // where the task is marked FAILED.
+                    .timeout(STREAM_IDLE_TIMEOUT);
 
             Flux<String> tokenFlux = answerFlux
                     .map(token -> {
@@ -195,7 +332,11 @@ public class WorkflowReactAgentService {
                         if (firstTokenMs.get() == null) {
                             firstTokenMs.set(elapsedMs(startedNs));
                         }
-                        String answer = answerBuilder.toString();
+                        // Partial failure guard: an empty model stream would
+                        // otherwise complete the task DONE with a blank answer.
+                        String answer = StringUtils.hasText(answerBuilder.toString())
+                                ? answerBuilder.toString()
+                                : CANNED_FALLBACK_ANSWER;
                         ReactChatResponseVO response = success(
                                 request.getChatId(), answer, trace, routeDecision, finalTaskId);
                         workflowEngine.completeTask(finalTaskId, WorkflowState.DONE, answer);
@@ -204,14 +345,22 @@ public class WorkflowReactAgentService {
                     }));
         })
                 .onErrorResume(ex -> {
+                    // Keep the exception type in the message when getMessage()
+                    // is blank (e.g. NPE) so the SSE error names the cause.
                     String message = StringUtils.hasText(ex.getMessage())
-                            ? ex.getMessage() : "stream failed";
+                            ? ex.getMessage() : ex.getClass().getSimpleName() + ": stream failed";
                     // Mark the task FAILED so a failed stream does not leave the
-                    // workflow record orphaned in a non-terminal state.
+                    // workflow record orphaned in a non-terminal state. Cleanup
+                    // failures are logged and never suppress the SSE error event.
                     String failedTaskId = taskIdRef.get();
-                    if (StringUtils.hasText(failedTaskId)) {
-                        workflowEngine.failTask(failedTaskId, message);
-                        workflowEngine.recordTaskMetrics("REACT_STREAM", "FAILED", elapsedMs(startedNs));
+                    try {
+                        if (StringUtils.hasText(failedTaskId)) {
+                            workflowEngine.failTask(failedTaskId, message);
+                            workflowEngine.recordTaskMetrics("REACT_STREAM", "FAILED", elapsedMs(startedNs));
+                        }
+                    } catch (RuntimeException cleanupEx) {
+                        log.error("Failed to mark REACT_STREAM task {} as FAILED after: {}",
+                                failedTaskId, message, cleanupEx);
                     }
                     return Flux.just(formatSse("error", toJson(Map.of("message", message))));
                 })
@@ -220,6 +369,13 @@ public class WorkflowReactAgentService {
 
     // ── Reason / Action / Summarize (same logic, now with engine) ──
 
+    /**
+     * One planning step: asks the model for a strict-JSON ReAct decision
+     * (thought / action / action_input / answer) constrained to the five
+     * allowed actions. Falls back to the deterministic keyword decision when
+     * the model call or JSON parsing fails, so the loop can always make
+     * progress.
+     */
     private ReasonDecision reason(ReactChatRequestVO request,
                                   String rollingContext,
                                   List<ReactTraceStepVO> trace,
@@ -232,17 +388,27 @@ public class WorkflowReactAgentService {
                     planningPrompt, routeDecision, tenantId, "react_planner");
             return parseDecision(raw);
         } catch (RuntimeException ex) {
+            // Degrade-not-fail: record why the planner was bypassed so the
+            // fallback decision is traceable in logs.
+            log.warn("ReAct planner call failed (chatId={}, endpoint=react_planner, stepTraceSize={});"
+                            + " falling back to keyword decision",
+                    request.getChatId(), trace == null ? 0 : trace.size(), ex);
             return fallbackDecision(request.getPrompt());
         }
     }
 
+    /**
+     * Dispatches the planner's chosen action to {@link AgentHarnessService},
+     * which enforces tool policy/tenant isolation, and returns the execution
+     * result as a map used both as trace observation and rolling context.
+     */
     private Map<String, Object> executeAction(ReactChatRequestVO request,
                                               String action,
                                               Map<String, Object> actionInput,
                                               String tenantId,
                                               String taskId,
                                               String stepId) {
-        return agentHarnessService.execute(new AgentAction(
+        AgentObservation observation = agentHarnessService.execute(new AgentAction(
                 action,
                 actionInput,
                 request.getPrompt(),
@@ -251,9 +417,20 @@ public class WorkflowReactAgentService {
                 request.getModelProfile(),
                 taskId,
                 stepId
-        )).toMap();
+        ));
+        if (observation == null) {
+            throw new IllegalStateException("tool harness returned no observation for action '" + action
+                    + "' (taskId=" + taskId + ", stepId=" + stepId + ")");
+        }
+        Map<String, Object> result = observation.toMap();
+        return result != null ? result : Collections.emptyMap();
     }
 
+    /**
+     * Produces the final answer via a model call over the accumulated trace
+     * and rolling context; degrades to a canned Chinese message if the call
+     * fails or returns blank, keeping the workflow response usable.
+     */
     private String summarizeAnswer(ReactChatRequestVO request, List<ReactTraceStepVO> trace,
                                     String rollingContext, ModelRouter.ModelRouteDecision routeDecision,
                                     String tenantId) {
@@ -264,10 +441,15 @@ public class WorkflowReactAgentService {
             if (StringUtils.hasText(answer)) {
                 return answer;
             }
-        } catch (RuntimeException ignored) {
-            // The deterministic fallback below keeps the workflow response usable.
+            log.warn("Final summarization returned blank content (chatId={}, endpoint=react_final);"
+                    + " using canned fallback answer", request.getChatId());
+        } catch (RuntimeException ex) {
+            // The deterministic fallback below keeps the workflow response usable,
+            // but the failure reason must stay visible in logs.
+            log.warn("Final summarization model call failed (chatId={}, endpoint=react_final);"
+                    + " using canned fallback answer", request.getChatId(), ex);
         }
-        return "当前未能生成最终答案，请稍后重试。";
+        return CANNED_FALLBACK_ANSWER;
     }
 
     private String buildFinalPrompt(ReactChatRequestVO request,
@@ -303,13 +485,27 @@ public class WorkflowReactAgentService {
                 .build();
     }
 
+    /**
+     * Resolves model profile / cost tier / experiment assignment for this
+     * turn through the {@link ModelRouter}; the result is reused for all
+     * model calls within the same request.
+     */
     private ModelRouter.ModelRouteDecision resolveRouteDecision(String profile, String endpoint,
                                                                  String subjectKey, String tenantId) {
         return modelRouter.resolve(profile, endpoint, tenantId, subjectKey);
     }
 
+    /**
+     * Blocking model call with tenant budget enforcement: estimates input
+     * tokens and asserts budget before the call, records actual usage
+     * afterwards (tagged with {@code endpointTag} for cost attribution).
+     */
     private String callModel(String system, String user, ModelRouter.ModelRouteDecision decision,
                               String tenantId, String endpointTag) {
+        if (decision == null) {
+            throw new IllegalStateException("model route decision is missing for endpoint '" + endpointTag
+                    + "' (tenantId=" + tenantId + "); cannot resolve model to call");
+        }
         long inputTokens = tenantCostService.estimateTokens(system)
                 + tenantCostService.estimateTokens(user);
         tenantCostService.assertBudget(tenantId, decision.costTier(), inputTokens, 600);
@@ -318,12 +514,22 @@ public class WorkflowReactAgentService {
                 .system(system).user(user).call().content();
         long outputTokens = tenantCostService.estimateTokens(output);
         tenantCostService.recordUsage(tenantId, decision.costTier(), inputTokens, outputTokens, endpointTag);
-        return output;
+        // Normalize a null model response to "" so callers never see null.
+        return StringUtils.hasText(output) ? output : "";
     }
 
+    /**
+     * Streaming variant of {@link #callModel}: same pre-call budget assert,
+     * with output usage recorded exactly once in {@code doFinally} after the
+     * token stream terminates (collected via a side StringBuilder).
+     */
     private Flux<String> callModelStream(String system, String user,
                                           ModelRouter.ModelRouteDecision decision,
                                           String tenantId, String endpointTag) {
+        if (decision == null) {
+            throw new IllegalStateException("model route decision is missing for endpoint '" + endpointTag
+                    + "' (tenantId=" + tenantId + "); cannot resolve model to stream from");
+        }
         long inputTokens = tenantCostService.estimateTokens(system)
                 + tenantCostService.estimateTokens(user);
         tenantCostService.assertBudget(tenantId, decision.costTier(), inputTokens, 600);
@@ -340,6 +546,12 @@ public class WorkflowReactAgentService {
                 });
     }
 
+    /**
+     * Maps ReAct step numbers to workflow status transitions
+     * (SEARCHING → RETRIEVING → JUDGING → REFLECTING → WRITING) so the
+     * persisted task status mirrors loop progress; steps beyond 4 stay in
+     * WRITING.
+     */
     private WorkflowState mapToWorkflowState(int step) {
         return switch (step) {
             case 1 -> WorkflowState.SEARCHING;
@@ -352,6 +564,13 @@ public class WorkflowReactAgentService {
 
     // ── Delegated helpers (same as original ReactAgentService) ───
 
+    /**
+     * Parses the planner's raw output into a {@link ReasonDecision}. Extracts
+     * the outermost JSON object, normalizes and allow-lists the action
+     * (unknown actions are coerced to {@code finish}), and degrades to a
+     * {@code finish} decision carrying the raw text as answer when the JSON
+     * is missing or invalid.
+     */
     private ReasonDecision parseDecision(String raw) {
         String json = extractJson(raw);
         if (!StringUtils.hasText(json)) {
@@ -378,6 +597,12 @@ public class WorkflowReactAgentService {
         }
     }
 
+    /**
+     * Deterministic keyword-based decision used when the planner model is
+     * unavailable: routes campus/reservation/knowledge-base prompts to canned
+     * answers (or {@code rag_search}), and otherwise advises retrying. Keeps
+     * the ReAct contract intact without any model call.
+     */
     private ReasonDecision fallbackDecision(String prompt) {
         String safe = emptyIfBlank(prompt).toLowerCase(Locale.ROOT);
         if (!StringUtils.hasText(safe)) {
@@ -408,6 +633,11 @@ public class WorkflowReactAgentService {
                 List.of("系统兜底。"));
     }
 
+    /**
+     * Extracts the outermost {@code {...}} span from raw model output so that
+     * JSON wrapped in prose or markdown fences can still be parsed; returns
+     * {@code ""} when no well-formed span exists.
+     */
     private String extractJson(String raw) {
         if (!StringUtils.hasText(raw)) return "";
         int start = raw.indexOf('{');
@@ -415,6 +645,11 @@ public class WorkflowReactAgentService {
         return (start < 0 || end <= start) ? "" : raw.substring(start, end + 1);
     }
 
+    /**
+     * Collects the string list stored under {@code key} (e.g. {@code citations}
+     * or {@code evidence}) in each step's observation map into a
+     * de-duplicated, insertion-ordered list for the final response.
+     */
     private List<String> extractTraceStrings(List<ReactTraceStepVO> trace, String key) {
         if (trace == null || trace.isEmpty()) return List.of();
         Set<String> values = new LinkedHashSet<>();
@@ -431,6 +666,10 @@ public class WorkflowReactAgentService {
         return List.copyOf(values);
     }
 
+    /**
+     * Appends a numbered {@code 引用来源:} footer to the answer unless there
+     * are no citations or the answer already cites its sources.
+     */
     private String attachCitationFooter(String answer, List<String> citations) {
         if (citations == null || citations.isEmpty()) return emptyIfBlank(answer);
         if (emptyIfBlank(answer).contains("引用来源")) return answer;
@@ -448,17 +687,37 @@ public class WorkflowReactAgentService {
     }
 
     private String toJson(Object value) {
-        try { return objectMapper.writeValueAsString(value); }
-        catch (Exception e) { return "{\"message\":\"serialization_failed\"}"; }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            // Keep the SSE/event payload well-formed but name the failure
+            // reason instead of an opaque placeholder.
+            log.warn("JSON serialization failed for {} (SSE/event payload degrades to placeholder)",
+                    value == null ? "null" : value.getClass().getSimpleName(), e);
+            return "{\"message\":\"serialization_failed\",\"reason\":\""
+                    + e.getClass().getSimpleName() + "\"}";
+        }
     }
 
     private String appendContext(String origin, String action, Object observation) {
         StringBuilder sb = new StringBuilder(emptyIfBlank(origin));
         if (sb.length() > 0) sb.append("\n");
         sb.append("action=").append(action).append(", observation=").append(toJson(observation));
+        if (sb.length() > MAX_ROLLING_CONTEXT_CHARS) {
+            // Keep the most recent observations and drop the oldest tail so
+            // prompt size stays bounded across long step loops.
+            sb.delete(0, sb.length() - MAX_ROLLING_CONTEXT_CHARS);
+            sb.insert(0, "...(earlier observations truncated)...\n");
+        }
         return sb.toString();
     }
 
+    /**
+     * Records per-outcome stream metrics: total latency and (when a token was
+     * observed) first-token latency as histogram timers, plus a request
+     * counter — all tagged with the final outcome ({@code success}/
+     * {@code error}).
+     */
     private void recordStreamMetrics(long startedNs, Long firstTokenMs, String outcome) {
         long total = elapsedMs(startedNs);
         Timer.builder("react.stream.total.latency").tag("outcome", outcome)

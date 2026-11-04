@@ -42,6 +42,13 @@ public class WebRetriever {
         this.meterRegistry = meterRegistry;
     }
 
+    /**
+     * 执行外部搜索：默认关闭（{@code app.web-search.enabled=false}）直接返回空列表；
+     * 开启后取第一个可用的后端（SearXNG / Bing）搜索，结果封装为
+     * {@link ScoredDocument}（sourceType=web，retrievalScore 与 finalScore 均用后端分）。
+     * 耗时经 {@code retrieval.web.latency} 直方图按 outcome
+     * （disabled / no-backend / empty / success）打点上报。
+     */
     public List<ScoredDocument> retrieve(String query, int topK) {
         Timer.Sample sample = Timer.start(meterRegistry);
         String outcome = "disabled";

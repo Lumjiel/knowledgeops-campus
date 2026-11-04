@@ -26,6 +26,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * File: RedisStreamIngestionQueue.java
+ * <p>
+ * Redis Stream 队列后端（默认，{@code app.ingestion.queue-backend=redis_stream} 时装配）：
+ * 消费者组拉模式 + 手动 ack，支持 {@link #claimIdle} 认领其他消费者超时未 ack 的
+ * 消息（防 worker 崩溃后消息滞留 pending）。死信为独立 Stream。
+ */
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "app.ingestion", name = "queue-backend", havingValue = "redis_stream")
@@ -87,6 +94,11 @@ public class RedisStreamIngestionQueue implements IngestionQueue {
         );
     }
 
+    /**
+     * 认领闲置消息：扫描 pending 列表中「最后一次投递距今 ≥ minIdle」的消息，
+     * XCLAIM 转移到当前消费者名下（minIdle 须为正，否则直接返回空）。
+     * 用于 worker 重启/崩溃后恢复滞留消息，防止任务丢失。
+     */
     @Override
     public List<IngestionQueueMessage> claimIdle(String consumerName, Duration minIdle, int maxCount) {
         if (!StringUtils.hasText(consumerName) || minIdle == null || minIdle.isZero() || minIdle.isNegative()) {
@@ -124,6 +136,10 @@ public class RedisStreamIngestionQueue implements IngestionQueue {
                 .build()).toList();
     }
 
+    /**
+     * 确保消费者组存在：先向 Stream 写一条初始化消息确保 Stream 存在，
+     * 再创建消费者组；BUSYGROUP（组已存在）之外异常仅 debug 记录，不阻断启动。
+     */
     @Override
     public void ensureConsumerGroup() {
         String streamKey = ingestionProperties.getRedis().getStreamKey();

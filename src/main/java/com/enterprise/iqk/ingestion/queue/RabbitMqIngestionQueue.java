@@ -12,6 +12,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * File: RabbitMqIngestionQueue.java
+ * <p>
+ * RabbitMQ 队列后端（{@code app.ingestion.queue-backend=rabbitmq} 时装配）：
+ * 只负责发布任务/死信消息，消费由推送式 {@link RabbitMqIngestionListener} 完成，
+ * 因此 readBatch 恒返回空、ack 由 listener 自动确认、无需消费者组。
+ */
 @Component
 @RequiredArgsConstructor
 @ConditionalOnProperty(prefix = "app.ingestion", name = "queue-backend", havingValue = "rabbitmq")

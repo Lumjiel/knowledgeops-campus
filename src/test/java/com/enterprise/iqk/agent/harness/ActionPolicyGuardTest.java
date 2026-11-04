@@ -84,4 +84,39 @@ class ActionPolicyGuardTest {
         assertThat(decision.allowed()).isFalse();
         assertThat(decision.code()).isEqualTo("tenant_action_denied");
     }
+
+    @Test
+    void rejectsTrustedActionsWhenTrustedRuntimeIsDisabled() {
+        // 生产 profile 的默认边界：trusted runtime 关闭后，即使 action 带上
+        // trustedRuntimeAccess=true 也会在 runtime 之前被拒
+        AgentHarnessProperties properties = new AgentHarnessProperties();
+        properties.setTrustedRuntimeEnabled(false);
+        ActionPolicyGuard localGuard = new ActionPolicyGuard(new ActionSchemaRegistry(), properties);
+
+        ActionPolicyDecision decision = localGuard.evaluate(new AgentAction("workspace_read_file",
+                Map.of("path", "README.md"), "prompt", "tenant", "chat", "balanced", "", "", true));
+
+        assertThat(decision.allowed()).isFalse();
+        assertThat(decision.code()).isEqualTo("trusted_runtime_disabled");
+    }
+
+    @Test
+    void allowsWorkspacePatchActionsWithEitherContentOrPatch() {
+        // 文档「path plus content or patch」：二选一通过，两个都缺才拒绝
+        ActionPolicyDecision withContent = guard.evaluate(new AgentAction("workspace_propose_patch",
+                Map.of("path", "README.md", "content", "next"), "prompt", "tenant", "chat",
+                "balanced", "", "", true));
+        ActionPolicyDecision withPatch = guard.evaluate(new AgentAction("workspace_propose_patch",
+                Map.of("path", "README.md", "patch", "--- a/README.md\n+++ b/README.md\n"), "prompt",
+                "tenant", "chat", "balanced", "", "", true));
+        ActionPolicyDecision withNeither = guard.evaluate(new AgentAction("workspace_propose_patch",
+                Map.of("path", "README.md", "summary", "noop"), "prompt", "tenant", "chat",
+                "balanced", "", "", true));
+
+        assertThat(withContent.allowed()).isTrue();
+        assertThat(withPatch.allowed()).isTrue();
+        assertThat(withNeither.allowed()).isFalse();
+        assertThat(withNeither.code()).isEqualTo("invalid_action_input");
+        assertThat(withNeither.message()).contains("content or patch");
+    }
 }

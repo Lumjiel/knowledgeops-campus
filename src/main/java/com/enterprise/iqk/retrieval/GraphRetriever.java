@@ -13,6 +13,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * File: GraphRetriever.java
+ * <p>
+ * 知识图谱检索器（四路召回之一）：从查询中提取主关键词，两路召回——
+ * 实体（名称/别名搜索，附一跳邻居关系上下文，固定分 0.85）与事实三元组
+ * （subject-predicate-object，按 confidence 打分，缺省 0.7），
+ * 统一封装为 {@link ScoredDocument}（sourceType=graph）。
+ */
 @Component
 @RequiredArgsConstructor
 public class GraphRetriever {
@@ -21,6 +29,15 @@ public class GraphRetriever {
     private final MeterRegistry meterRegistry;
     private final Tokenizer tokenizer;
 
+    /**
+     * 执行图谱检索：关键词为空直接返回空列表；否则并行含义上的两段——
+     * 实体搜索 + 一跳邻居上下文、事实三元组搜索——合并返回。
+     * 耗时经 {@code retrieval.graph.latency} 直方图按 outcome 打点上报。
+     *
+     * @param query    用户查询文本
+     * @param tenantId 租户 ID（图谱数据按租户隔离）
+     * @param topK     实体与事实各自的召回上限
+     */
     public List<ScoredDocument> retrieve(String query, String tenantId, int topK) {
         Timer.Sample sample = Timer.start(meterRegistry);
         String outcome = "error";
@@ -79,6 +96,7 @@ public class GraphRetriever {
         }
     }
 
+    /** 提取主关键词：取分词后最长的 token（长度 ≥ 2），过短则回退整个查询。 */
     private String extractMainKeyword(String query) {
         if (!StringUtils.hasText(query)) return "";
         // Simple: take the longest token as keyword
@@ -91,6 +109,7 @@ public class GraphRetriever {
         return longest.length() >= 2 ? longest : query.trim();
     }
 
+    /** 把一跳邻居拼成「关系 → 实体名; …」上下文串，空列表返回空串。 */
     private String buildNeighborContext(List<GraphService.GraphNeighbor> neighbors) {
         if (neighbors == null || neighbors.isEmpty()) return "";
         StringBuilder sb = new StringBuilder();
@@ -101,6 +120,7 @@ public class GraphRetriever {
         return sb.toString();
     }
 
+    /** 空值回退辅助。 */
     private String defaultText(String value, String fallback) {
         return StringUtils.hasText(value) ? value : fallback;
     }

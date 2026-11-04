@@ -1,5 +1,12 @@
 # Agent Harness 架构
 
+<!--
+  Document header: Agent Harness 子系统的架构说明。读者面向后端维护者与安全评审者；
+  正文按「执行链路 → 组件职责 → 各 runtime 边界 → 配置与审计 → 测试覆盖」展开。
+  表格与代码块描述的组件名、action 名、配置键均与源码/配置文件一一对应，勿在此处
+  修改语义；更新接口或 action 列表时请同步源码与本表。
+-->
+
 Agent Harness 将 ReAct 循环中的工具执行从业务 service 中抽出，形成统一的动作执行层：
 
 ```text
@@ -13,6 +20,8 @@ model decision
 ```
 
 ## 当前范围
+
+本节界定 MVP 的信任模型：哪些能力默认可用、哪些需要受信确认通道。
 
 当前实现是 Harness MVP：内置业务工具默认可用；MCP 与 Workspace runtime 已接入，但都要求
 `AgentAction.trustedRuntimeAccess=true`。普通 ReAct 对话创建的 action 默认没有该权限，因此不会因为模型输出伪造而执行文件、命令或外部工具。受信动作必须先走 `/ai/harness/actions/preview` 生成一次性确认 token，再走 `/ai/harness/actions/execute/{token}` 执行。
@@ -33,6 +42,8 @@ model decision
 
 ## 内置工具
 
+无副作用的查询工具与一个业务写入（预约）直接可用；与 ReAct 循环的分工见 `finish` 的说明。
+
 `BuiltinToolRuntime` 当前支持：
 
 - `query_school`
@@ -43,6 +54,8 @@ model decision
 `finish` 不属于 runtime action，它仍由 ReAct service 处理，因为它代表循环结束而不是工具调用。
 
 ## Action schema
+
+schema 是模型输出与 runtime 之间的契约：Trust 列决定是否需要 preview/execute 确认通道。
 
 Harness 当前注册的 action：
 
@@ -63,6 +76,8 @@ Harness 当前注册的 action：
 不符合 schema 的 action 会在 runtime 之前被拒绝，并返回 `source=policy` 的 observation。
 
 ## Policy and configuration
+
+运行时开关与资源限额的唯一定义点；生产 profile 的默认值是「全关」，开放项需显式配置。
 
 `app.agent-harness` 控制 runtime 边界：
 
@@ -99,6 +114,8 @@ Policy guard 会按顺序检查：action 是否注册、是否被全局禁用、
 
 ## 审计与回放
 
+action 事件的产出规则与消费方式：同一张 `agent_event` 表既支撑 UI 回放，也支撑安全审计。
+
 当 action 带有 `taskId` 与 `stepId` 时，harness 会通过 `AgentWorkflowEngine.emitEvent()` 写入：
 
 - `ACTION_STARTED`
@@ -109,6 +126,8 @@ Policy guard 会按顺序检查：action 是否注册、是否被全局禁用、
 这些事件与 `STEP_STARTED` / `STEP_COMPLETED` 共享同一个 `agent_event` 表，可以通过 workflow task events API 还原执行过程。
 
 ## MCP runtime
+
+核心设计：网络目标由服务端白名单（`McpToolAdapter` bean）决定，模型只能选择已适配的 server/tool 组合。
 
 `McpToolRuntime` 不接受模型指定的任意网络目标，而是查找 Spring 容器中的 `McpToolAdapter`：
 
@@ -125,6 +144,8 @@ public interface McpToolAdapter {
 默认提供 `HttpMcpToolAdapter`：只会调用 `app.agent-harness.mcp.servers` 中显式配置且启用的 server/tool，按 JSON-RPC `tools/call` 形式发送请求。HTTP 非 2xx、超时或解析异常都会变成 `source=mcp`、`status=error` 的 observation，而不是抛出到 ReAct 循环外。
 
 ## Workspace runtime
+
+六个动作覆盖读/搜/写/命令四类能力；下面的「安全边界」清单是本节的重点，逐条对应 `WorkspaceRuntime` 的实现约束。
 
 `WorkspaceRuntime` 的第一版能力：
 
@@ -147,6 +168,8 @@ public interface McpToolAdapter {
 生产环境如果要开放更强的文件或 shell 能力，下一步应把 `WorkspaceRuntime` 移到独立 sandbox 服务中。
 
 ## Evaluation
+
+测试矩阵与风险面的对应关系：每一类 runtime/边界都有对应用例，末条的 harness evaluation 是四类路径的端到端固定评估。
 
 Harness 测试覆盖：
 

@@ -9,10 +9,17 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
+/**
+ * File: DefaultFileSafetyScanner.java
+ * <p>
+ * 默认文件安全扫描：仅允许 .pdf 扩展名、校验魔数头（%PDF-）、拦截 EICAR
+ * 测试病毒特征串。只读前 8KB 做特征检查，不做全量病毒扫描。
+ */
 @Component
 public class DefaultFileSafetyScanner implements FileSafetyScanner {
     private static final int SCAN_BYTES = 8192;
 
+    /** 扫描主流程：扩展名 → 魔数 → EICAR 特征，任一不过即抛异常拒绝上传。 */
     @Override
     public void scan(MultipartFile file) {
         String originalName = file.getOriginalFilename();

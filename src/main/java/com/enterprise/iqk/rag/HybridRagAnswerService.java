@@ -27,6 +27,15 @@ import java.util.UUID;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
+/**
+ * File: HybridRagAnswerService.java
+ * <p>
+ * 混合检索问答编排器（docs/architecture-hybrid-retrieval.md 流程图的落点）：
+ * 六步串联——混合检索 → 证据三维评分 → 生成编号引用 → 组装上下文 →
+ * LLM 生成答案（经 ModelRouter 路由与租户预算管控）→ 追加「引用来源」尾注。
+ * 返回结构对应文档「返回结构」：answer + citations + evidence + traceId + memoryUsed。
+ * 管道整体延迟/请求数按 outcome 打点（rag.hybrid.pipeline.*）。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -41,6 +50,18 @@ public class HybridRagAnswerService {
     private final MeterRegistry meterRegistry;
     private final TenantCostService tenantCostService;
 
+    /**
+     * 执行完整混合 RAG 管道。检索为空时短路返回固定文案（不调 LLM）；
+     * 调用模型前先估算输入 token 并断言租户预算（超限抛出异常，管道 outcome=error）。
+     * 耗时与请求数在 finally 中上报，保证异常路径也有指标。
+     *
+     * @param prompt         用户问题
+     * @param tenantId       租户 ID（内部归一化）
+     * @param chatId         会话 ID（检索过滤 + 模型路由 subjectKey）
+     * @param conversationId 对话记忆 ID（透传 ChatClient advisor）
+     * @param modelProfile   模型档位（路由决策用）
+     * @return 答案（含引用尾注）+ 引用 + 证据 + traceId + 检索统计
+     */
     public HybridRagResult answer(String prompt, String tenantId, String chatId,
                                    String conversationId, String modelProfile) {
         Timer.Sample pipelineSample = Timer.start(meterRegistry);
@@ -126,6 +147,7 @@ public class HybridRagAnswerService {
         }
     }
 
+    /** 把检索文档拼成带编号的上下文块：{@code [n] source=…, title=…, chunk=… + 正文}，编号与引用 index 对齐。 */
     private String buildContext(List<ScoredDocument> docs) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < docs.size(); i++) {
@@ -141,21 +163,41 @@ public class HybridRagAnswerService {
         return sb.toString();
     }
 
+    /**
+     * 混合 RAG 管道的返回结构（对应架构文档「返回结构」）。
+     *
+     * <ul>
+     *   <li>answer：LLM 答案 + 「引用来源」尾注（正文含 [1][2] 引用标记）；</li>
+     *   <li>citations / evidence：编号引用与三维评分证据；</li>
+     *   <li>traceId：本次管道链路 ID（trace-&lt;12位hex&gt;）；</li>
+     *   <li>memoryUsed：预留字段，当前恒为空列表。</li>
+     * </ul>
+     */
     @Data
     @Builder
     public static class HybridRagResult {
+        /** 最终答案（已追加引用尾注）。 */
         private String answer;
+        /** 编号引用列表（与证据同序，index 从 1 起）。 */
         private List<CitationItem> citations;
+        /** 三维评分证据列表（按综合分降序）。 */
         private List<EvidenceItem> evidence;
+        /** 本次管道链路 ID。 */
         private String traceId;
+        /** 使用的会话记忆（预留，当前为空）。 */
         private List<String> memoryUsed;
+        /** 检索漏斗统计。 */
         private RetrievalStats retrievalStats;
 
+        /** 检索漏斗统计：召回总数 → 去重后 → 最终 top-K。 */
         @Data
         @Builder
         public static class RetrievalStats {
+            /** 四路召回合并后的文档总数（去重前）。 */
             private int totalRetrieved;
+            /** 指纹去重后的文档数。 */
             private int afterDedup;
+            /** 最终返回的 top-K 数量。 */
             private int finalCount;
         }
     }

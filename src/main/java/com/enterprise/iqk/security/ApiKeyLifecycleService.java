@@ -10,12 +10,24 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+/**
+ * File: ApiKeyLifecycleService.java
+ * <p>
+ * API Key 全生命周期管理（docs/architecture-enterprise.md「Tenant-scoped API key
+ * lifecycle」）：签发（同名活跃键互斥）、幂等 provision、轮换（旧键撤销 + 新键
+ * 关联 rotatedFromId）与撤销。所有操作均以归一化租户为作用域；
+ * 原始 key 只在签发结果中出现一次，库中仅存哈希。
+ */
 @Service
 @RequiredArgsConstructor
 public class ApiKeyLifecycleService {
     private final ApiKeyMapper apiKeyMapper;
     private final SecurityProperties securityProperties;
 
+    /**
+     * 签发新 key：同一租户下已存在同名活跃键时拒绝（IllegalArgumentException）；
+     * 否则生成 {@code ak-<uuid>} 随机 key 并落库。
+     */
     public ApiKeyIssueResult issue(String keyName, String roleName, String tenantId) {
         String normalizedTenant = normalizeTenant(tenantId);
         ApiKeyRecord active = apiKeyMapper.findActiveByKeyName(keyName, normalizedTenant);
@@ -67,6 +79,10 @@ public class ApiKeyLifecycleService {
         return new ApiKeyIssueResult(rawKey, keyName, normalizedTenant, expiresAt);
     }
 
+    /**
+     * 轮换：撤销指定 keyName 的活跃键后立即签发新键，并在新键上记录
+     * rotatedFromId 审计链。旧键不存在时抛 IllegalArgumentException。
+     */
     public ApiKeyIssueResult rotate(String keyName, String reason, String tenantId) {
         String normalizedTenant = normalizeTenant(tenantId);
         ApiKeyRecord old = apiKeyMapper.findActiveByKeyName(keyName, normalizedTenant);
@@ -84,6 +100,7 @@ public class ApiKeyLifecycleService {
         return issued;
     }
 
+    /** 撤销指定 keyName 的活跃键（记录原因）；不存在时抛 IllegalArgumentException。 */
     public void revoke(String keyName, String reason, String tenantId) {
         String normalizedTenant = normalizeTenant(tenantId);
         ApiKeyRecord record = apiKeyMapper.findActiveByKeyName(keyName, normalizedTenant);

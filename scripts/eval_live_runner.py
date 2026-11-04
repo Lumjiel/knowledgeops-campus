@@ -1,4 +1,25 @@
 #!/usr/bin/env python3
+"""评测实时打标脚本：把数据集逐条打到真实聊天流式端点，产出预测记录。
+
+与离线评测（eval_demo.py 走 /ai/evaluation 端点）不同，本脚本直接调用
+POST /ai/react/chat/stream 的 SSE 接口，为 evaluation/dataset.json 中每条
+用例采集「真实模型回答」，供与评测报告对照分析。核心能力：
+
+- 每条用例独立流式请求，逐 token 记录首 token 延迟与总耗时；
+- answer 优先取 done 事件的 answer 字段，缺省时回退为全部 token 拼接；
+- 引用（citations）从 done 事件的顶层 citations 及 trace 各步骤的
+  observation.citations 中提取并去重；
+- 单条请求失败（HTTP/网络/超时/流内 error 事件）不中断整体运行，
+  该条记为 status=error，其余继续。
+
+用法示例：
+    E2E_API_KEY=<key> python scripts/eval_live_runner.py --limit 5
+
+输出：JSON 数组写入 --output（默认 evaluation/predictions.live.json），
+每条记录包含 id、prediction_source="live_api"、status、answer、error、
+citations、first_token_latency_ms、total_latency_ms。
+"""
+
 import argparse
 import json
 import os
@@ -9,6 +30,12 @@ from pathlib import Path
 
 
 def make_headers(args):
+    """构造 SSE 流式请求所需的公共请求头。
+
+    固定携带 Content-Type: application/json 与 Accept: text/event-stream；
+    认证二选一：优先 Bearer Token（Authorization 头），其次 API Key
+    （X-API-Key 头）；配置了租户时追加 X-Tenant-ID 头。
+    """
     headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
     if args.bearer_token:
         headers["Authorization"] = f"Bearer {args.bearer_token}"
@@ -20,6 +47,15 @@ def make_headers(args):
 
 
 def extract_citations(done_payload):
+    """从 done 事件 payload 中提取引用列表（去重、保序、去空白项）。
+
+    两个来源依次收集：
+    - 顶层 citations 字段（列表，元素转字符串）；
+    - trace 各步骤的 observation.citations 字段（RAG 检索观测）。
+
+    done_payload 非 dict（如解析降级为纯文本）时返回空列表。
+    去重按首次出现顺序保留，即「unique + order」。
+    """
     if not isinstance(done_payload, dict):
         return []
     citations = []
@@ -56,6 +92,23 @@ def extract_citations(done_payload):
 
 
 def stream_chat(base_url, body, headers, timeout):
+    """对 /ai/react/chat/stream 发起一次 SSE 流式聊天，返回单条预测结果字典。
+
+    返回结构：
+    - status："ok"（收到 done 且无 error 事件）或 "error"；
+    - answer：done.answer 优先，缺省回退为全部 token 顺序拼接；
+    - error：流内 error 事件的消息；流正常结束但无 done 时补
+      "stream ended without done payload"；
+    - citations：见 extract_citations；
+    - first_token_latency_ms：首个非空 token（或 done 事件）距请求
+      开始的毫秒数，未收到任何 token/done 时为 None；
+    - total_latency_ms：流读取全程耗时（毫秒）。
+
+    SSE 解析兼容标准布局（event:/data:）与 Spring WebFlux 包装布局
+    （data:event:/data:data:），空 data 行视为心跳忽略；data 行 JSON
+    解析失败时降级为原始文本参与事件处理。非 200 响应抛 RuntimeError，
+    由 main 的逐条 try/except 捕获后记为该条用例失败。
+    """
     url = f"{base_url.rstrip('/')}/ai/react/chat/stream"
     req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
 
@@ -147,6 +200,18 @@ def stream_chat(base_url, body, headers, timeout):
 
 
 def main():
+    """脚本入口：读数据集 → 逐条流式请求 → 汇总写预测文件。
+
+    流程说明：
+    - 数据集为 JSON 数组文件；--limit > 0 时截取前 N 条（0 表示全部）；
+    - 每条用例构造 {prompt, chatId, modelProfile} 请求体，chatId 缺省
+      按 "eval-live-<序号>" 生成，保证会话独立；
+    - 单条请求抛出 HTTPError/URLError/TimeoutError/RuntimeError 时，
+      以固定结构的 error 记录代替该条结果，循环不中断；
+    - 每处理完一条即向标准输出打印进度 "[i/总数] caseId: status"；
+    - 全部完成后把预测数组（ensure_ascii=False，2 空格缩进）写入
+      --output 路径并打印落盘位置与记录数。
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="evaluation/dataset.json")
     parser.add_argument("--output", default="evaluation/predictions.live.json")

@@ -21,6 +21,14 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * File: RateLimitFilter.java
+ * <p>
+ * 租户 + 主体复合限流（docs/architecture-enterprise.md「Tenant + principal
+ * composite rate limiting」）：Bucket4j 令牌桶，键为 tenant:principal 或
+ * tenant:ip（未认证时），单实例内存桶 + 定时清理。横向扩容前需替换为
+ * 共享后端（见文档「Operational Recommendations」）。
+ */
 @Component
 @RequiredArgsConstructor
 public class RateLimitFilter extends OncePerRequestFilter {
@@ -31,6 +39,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // callers rebuild their bucket on the next request.
     private static final int MAX_BUCKETS = 50_000;
 
+    /**
+     * 限流主流程：actuator 与 security 关闭时放行；桶数到达硬上限时先清空
+     * 防止键洪水撑爆内存；令牌不足直接写结构化 429 JSON 并短路。
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
@@ -55,6 +67,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    /** 限流键：认证后有主体用 principal，否则回退客户端 IP；租户始终参与复合。 */
     private String resolveKey(HttpServletRequest request) {
         String tenantId = resolveTenant(request);
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -137,6 +150,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         return TenantContext.normalize(request.getHeader(TenantContext.TENANT_HEADER));
     }
 
+    /** 按配置容量与贪心填充速率构建新令牌桶（所有键共用同一档速率）。 */
     private Bucket newBucket() {
         Refill refill = Refill.greedy(rateLimitProperties.getRefillTokens(),
                 Duration.ofSeconds(rateLimitProperties.getRefillSeconds()));

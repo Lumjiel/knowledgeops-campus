@@ -12,11 +12,19 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
+/**
+ * File: HttpMetricsFilter.java
+ * <p>
+ * HTTP 时延指标过滤器（Operations Context 可观测性）：为每个请求记录
+ * {@code http.requests.latency} 直方图，按 method / 归一化 path / status 打标签，
+ * 模板路径归一化防止高基数标签爆炸。
+ */
 @Component
 @RequiredArgsConstructor
 public class HttpMetricsFilter extends OncePerRequestFilter {
     private final MeterRegistry meterRegistry;
 
+    /** 计时环绕整个过滤链，finally 中停止计时并上报（无论成败）。 */
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
@@ -33,6 +41,7 @@ public class HttpMetricsFilter extends OncePerRequestFilter {
         }
     }
 
+    /** 路径模板化：actuator 与带路径参数的端点折叠为模板，防止标签基数失控。 */
     private String normalizePath(String raw) {
         if (raw == null || raw.isBlank()) {
             return "/";

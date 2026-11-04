@@ -17,11 +17,25 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * File: JwtService.java
+ * <p>
+ * JWT 签发与解析（HMAC-SHA，密钥来自 {@code app.security.jwt-secret}，不足 32 字节
+ * 直接启动失败）。claims 携带 roles / permissions / tenant_id，是「JWT for
+ * request-level authn/authz」（docs/architecture-enterprise.md §4）的核心实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class JwtService {
     private final SecurityProperties securityProperties;
 
+    /**
+     * 解析并校验 JWT 签名与有效期，还原为 {@link AuthIdentity}。
+     * roles/permissions 兼容 List、逗号分隔字符串与 {value: ...} 包装三种形态；
+     * roles 为空时默认授予 USER。
+     *
+     * @return 身份；token 为空、签名非法、已过期或缺 subject 时返回 {@code null}
+     */
     public AuthIdentity parse(String token) {
         if (!StringUtils.hasText(token)) {
             return null;
@@ -53,6 +67,7 @@ public class JwtService {
                 .build();
     }
 
+    /** 按默认有效期（{@code app.security.jwt-expire-minutes}）签发。 */
     public String issueToken(String subject, List<String> roles, List<String> permissions, String tenantId) {
         return issueToken(subject, roles, permissions, tenantId, securityProperties.getJwtExpireMinutes());
     }
@@ -72,6 +87,7 @@ public class JwtService {
                 .compact();
     }
 
+    /** 密钥：要求已配置且 ≥ 32 字节，否则抛 IllegalStateException（fail-fast）。 */
     private SecretKey secretKey() {
         String secret = securityProperties.getJwtSecret();
         if (!StringUtils.hasText(secret)) {

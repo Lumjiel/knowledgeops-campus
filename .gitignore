@@ -65,3 +65,12 @@ dist/
 考研入警准备手册.txt
 .workbuddy-ai/
 .workbuddy/
+### glm-burn 运行时产物 ###
+logs/
+*.log
+*.bak
+*.bak.*
+*.bad
+.env
+.env.local
+reports/*.tmp

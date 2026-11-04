@@ -18,6 +18,27 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * 基于配置驱动的 HTTP 型 MCP 工具适配器（{@link McpToolAdapter} 实现）。
+ *
+ * <p>与固定标识的单工具适配器不同，本实现覆写了 {@link #supports(String, String)}
+ * 与 {@link #execute(String, String, Map)}，可服务 {@code AgentHarnessProperties}
+ * 中配置的任意多个 MCP server/tool：以 JSON-RPC 2.0 {@code tools/call} 协议
+ * POST 到 {@code baseUrl + tool.path}。</p>
+ *
+ * <p>安全边界（防 SSRF/资源耗尽）：
+ * <ul>
+ *   <li>baseUrl 仅允许公网 http(s) 地址（私有网段/环回/链路本地/组播地址拒绝，
+ *       可经 {@code app.agent-harness.mcp.allowed-hosts} 显式加白），
+ *       详见 {@link #isSafeBaseUrl}；</li>
+ *   <li>响应体上限 {@link #MAX_MCP_RESPONSE_BYTES}（2 MiB），防止恶意
+ *       MCP 服务端以超大响应耗尽 JVM 内存。</li>
+ * </ul>
+ *
+ * <p>容错约定：{@code execute} 系列永不抛出异常，所有失败（非 2xx、超限、
+ * 网络/序列化异常）均折叠为 {@code {status=error, message=...}} Map 返回，
+ * 由上层 harness 统一呈现给 agent。</p>
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -37,16 +58,23 @@ public class HttpMcpToolAdapter implements McpToolAdapter {
     // max-file-bytes cap and is generous for typical JSON-RPC responses.
     private static final long MAX_MCP_RESPONSE_BYTES = 2L * 1024L * 1024L;
 
+    /** 固定适配器标识；实际可用的 server/tool 集合由配置决定，经 {@link #supports} 判定。 */
     @Override
     public String server() {
         return "configured-http";
     }
 
+    /** 固定适配器标识，语义同 {@link #server()}。 */
     @Override
     public String tool() {
         return "configured-http";
     }
 
+    /**
+     * 判定指定 server/tool 是否可执行，需同时满足：
+     * server 已配置且启用、baseUrl 存在且通过 SSRF 安全校验、
+     * tool 已登记且启用。未配置的 server 直接返回 false。
+     */
     @Override
     public boolean supports(String server, String tool) {
         AgentHarnessProperties.McpServer serverConfig = harnessProperties.getMcp().getServers().get(server);
@@ -58,6 +86,20 @@ public class HttpMcpToolAdapter implements McpToolAdapter {
                 && serverConfig.getTools().get(tool).isEnabled();
     }
 
+    /**
+     * 执行配置内的 MCP 工具调用：构造 JSON-RPC 2.0 {@code tools/call} 请求
+     * （id 为随机 UUID），按 tool 配置的 {@code timeoutMs} 超时 POST 到
+     * {@code baseUrl + path}，响应解析为 Object 返回。
+     *
+     * <p>失败折叠约定：响应超过 2 MiB、HTTP 状态非 2xx、连接/超时/JSON
+     * 解析异常，一律返回 {@code {status=error, message=...}}，不抛出异常。
+     * 注意未配置的 server/tool 会触发 NPE，调用方应先经 {@link #supports} 判定。</p>
+     *
+     * @param server    MCP server 配置键（{@code app.agent-harness.mcp.servers} 下的键名）
+     * @param tool      该 server 下已登记的工具名
+     * @param arguments 透传给 MCP 工具的入参
+     * @return MCP 服务端响应（反序列化后的 Object），或 error 状态 Map
+     */
     @Override
     public Object execute(String server, String tool, Map<String, Object> arguments) {
         try {
@@ -91,11 +133,22 @@ public class HttpMcpToolAdapter implements McpToolAdapter {
         }
     }
 
+    /**
+     * 单参形式不被本适配器支持（配置型调用必须显式指定 server 与 tool），
+     * 固定返回 error 状态 Map，与 {@link #execute(String, String, Map)} 的
+     * 失败折叠约定一致。
+     */
     @Override
     public Object execute(Map<String, Object> arguments) {
         return Map.of("status", "error", "message", "configured MCP call requires server and tool");
     }
 
+    /**
+     * 拼接 MCP 请求 URL：去掉 baseUrl 末尾斜杠、path 补齐前导斜杠后相连。
+     * 拼接前会再次做 SSRF 安全校验（{@link #isSafeBaseUrl}），不合规时抛出
+     * {@link IllegalArgumentException}（由 {@link #execute(String, String, Map)}
+     * 的 catch 折叠为 error Map）。
+     */
     private URI resolveUri(String baseUrl, String path) {
         if (!isSafeBaseUrl(baseUrl, harnessProperties.getMcp().getAllowedHosts())) {
             throw new IllegalArgumentException("MCP baseUrl is not a permitted public endpoint: " + baseUrl);
@@ -117,6 +170,11 @@ public class HttpMcpToolAdapter implements McpToolAdapter {
      * {@code app.agent-harness.mcp.allowed-hosts}. Tests and dev
      * environments typically need to set it to {@code ["localhost",
      * "127.0.0.1", "::1"]}.
+     *
+     * @param baseUrl      candidate MCP base URL, may be blank or malformed
+     * @param allowedHosts operator-curated host allow list, may be null/empty
+     * @return true only if the scheme is http(s) and the host is either
+     *         allow-listed or resolves exclusively to public addresses
      */
     static boolean isSafeBaseUrl(String baseUrl, java.util.List<String> allowedHosts) {
         if (!StringUtils.hasText(baseUrl)) {
@@ -154,6 +212,11 @@ public class HttpMcpToolAdapter implements McpToolAdapter {
         return true;
     }
 
+    /**
+     * 白名单匹配（大小写不敏感）：以 {@code .} 开头的 pattern 按后缀匹配
+     * （如 {@code .internal.example.com} 匹配其任意子域），其余按精确匹配；
+     * 白名单为空或不命中返回 false。命中即跳过 DNS 解析类校验。
+     */
     private static boolean hostMatchesAllowList(String host, java.util.List<String> allowedHosts) {
         if (allowedHosts == null || allowedHosts.isEmpty()) {
             return false;

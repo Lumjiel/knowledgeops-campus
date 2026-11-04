@@ -27,6 +27,13 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
+/**
+ * File: IngestionController.java
+ * <p>
+ * 文档摄取对外 REST 端点（前缀 {@code /ingestion}）：PDF 上传受理（幂等键经
+ * {@code X-Idempotency-Key} 请求头传入）、任务查询、以及 ADMIN 手动触发消费/重投。
+ * 所有查询与处理均按当前租户（{@code TenantContext}）隔离。
+ */
 @RestController
 @RequestMapping("/ingestion")
 @RequiredArgsConstructor
@@ -37,6 +44,15 @@ public class IngestionController {
     private final ObjectProvider<Tracer> tracerProvider;
     private final IngestionProperties ingestionProperties;
 
+    /**
+     * 受理一份 PDF 上传：同步落库返回任务记录，实际解析/向量化异步执行。
+     * 路由级权限 PERM_INGESTION_WRITE（见 SecurityConfiguration）。
+     *
+     * @param chatId        会话 ID（路径参数），任务归属会话
+     * @param file          上传的 PDF 文件
+     * @param idempotencyKey 可选幂等键；缺省时服务端按租户+会话+内容哈希自动生成
+     * @return 受理结果（含任务 VO，状态 PENDING 或幂等命中的既有任务）
+     */
     @PostMapping("/upload/{chatId}")
     public IngestionSubmitVO uploadPdf(@PathVariable String chatId,
                                        @RequestParam("file") MultipartFile file,
@@ -51,6 +67,7 @@ public class IngestionController {
                 .build();
     }
 
+    /** 查询单个摄取任务（租户隔离）；不存在时 404。 */
     @GetMapping("/jobs/{jobId}")
     public IngestionJobVO getJob(@PathVariable String jobId) {
         IngestionJob job = ingestionService.getByJobId(currentTenantId(), jobId);
@@ -60,6 +77,7 @@ public class IngestionController {
         return toVO(job);
     }
 
+    /** 查询会话下最近的摄取任务列表，limit 被夹取到 [1, 100]。 */
     @GetMapping("/jobs")
     public List<IngestionJobVO> getJobsByChatId(@RequestParam("chatId") String chatId,
                                                 @RequestParam(value = "limit", defaultValue = "20") int limit) {
@@ -69,6 +87,13 @@ public class IngestionController {
                 .toList();
     }
 
+    /**
+     * ADMIN 手动处理入口（{@code @PreAuthorize hasRole('ADMIN')}）：
+     * 不带 jobId 时扫描并重投到期的 RETRY 任务；带 jobId 时立即消费该任务
+     * （租户隔离校验，任务不存在时 404）。
+     *
+     * @return 处理结果：重投数量、processed（已执行）或 empty（被其他 worker 抢占）
+     */
     @PostMapping("/jobs/process")
     @PreAuthorize("hasRole('ADMIN')")
     public IngestionSubmitVO processOne(@RequestParam(value = "jobId", required = false) String jobId) {
@@ -93,6 +118,7 @@ public class IngestionController {
                 .build();
     }
 
+    /** 任务记录 → 对外 VO（附当前队列后端标识，便于前端提示处理时延）。 */
     private IngestionJobVO toVO(IngestionJob job) {
         return IngestionJobVO.builder()
                 .jobId(job.getJobId())
@@ -110,6 +136,7 @@ public class IngestionController {
                 .build();
     }
 
+    /** 从 Micrometer Tracer 当前 span 取 traceId；无 tracer / 无 span 时返回空串。 */
     private String currentTraceId() {
         Tracer tracer = tracerProvider.getIfAvailable();
         if (tracer == null) {
@@ -123,6 +150,7 @@ public class IngestionController {
         return StringUtils.hasText(traceId) ? traceId : "";
     }
 
+    /** 当前租户 ID：取 MDC 中的租户并归一化（缺省 "public"）。 */
     private String currentTenantId() {
         return TenantContext.normalize(MDC.get(TenantContext.TENANT_REQUEST_ATTRIBUTE));
     }

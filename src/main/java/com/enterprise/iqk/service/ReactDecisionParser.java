@@ -13,15 +13,41 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+/**
+ * ReAct 决策解析与规则兜底。
+ *
+ * <p>负责两件事：
+ * <ol>
+ *   <li>{@link #parse(String)}：把 planner（LLM）输出的 ReAct 决策 JSON 解析为
+ *       {@link ReasonDecision}，非法/越权动作一律收敛为 {@code finish}；</li>
+ *   <li>{@link #fallback(String)}：planner 不可用或输出不可解析时，按关键词命中
+ *       走确定性的安全兜底决策（校区/预约字段/高温风险/无上下文策略/知识库检索等）。</li>
+ * </ol>
+ *
+ * <p>由 {@link ReactAgentService} 持有并调用；本类自身无状态（仅依赖线程安全的
+ * {@link ObjectMapper}），可单例复用。</p>
+ */
 @Component
 @RequiredArgsConstructor
 public class ReactDecisionParser {
+    /** parse() 认可的动作白名单；不在名单内的动作会被降级为 finish。 */
     private static final List<String> ALLOWED_ACTIONS = List.of(
             "query_school", "query_course", "add_course_reservation", "rag_search", "finish"
     );
 
     private final ObjectMapper objectMapper;
 
+    /**
+     * 解析 planner 输出的 ReAct 决策 JSON（形如 thought/action/action_input/answer）。
+     *
+     * <p>容错策略：只取首个左花括号与末个右花括号之间的片段作为 JSON；
+     * 动作统一 trim + 小写后校验白名单，空缺或越权动作降级为 {@code finish}；
+     * 整体解析失败时回退为 {@code finish} 决策，并把原始文本尽力提取出的
+     * {@code answer} 作为回答，避免把 JSON 原样透出给用户。</p>
+     *
+     * @param rawModelOutput planner 的原始输出，允许夹杂说明文字，可为空
+     * @return 解析结果；永不返回 {@code null}，失败场景由 {@code finish} 决策兜底
+     */
     public ReasonDecision parse(String rawModelOutput) {
         String json = extractJson(rawModelOutput);
         if (!StringUtils.hasText(json)) {
@@ -51,6 +77,17 @@ public class ReactDecisionParser {
         }
     }
 
+    /**
+     * planner 不可用时的确定性规则兜底：按 prompt 关键词命中预设场景，
+     * 返回带固定 citations/evidence 的 {@code finish} 决策（或知识库场景的
+     * {@code rag_search} 决策），保证降级路径下用户仍拿到可执行、不编造的回答。
+     *
+     * <p>命中优先级自上而下：空输入 → 校区 → 预约字段 → 高温风险 →
+     * 无上下文策略 → 知识库/来源 → 通用兜底。</p>
+     *
+     * @param prompt 原始用户输入，参与关键词匹配；可为空
+     * @return 降级决策，永不返回 {@code null}，且 {@link ReasonDecision#fallback()} 恒为 true
+     */
     public ReasonDecision fallback(String prompt) {
         String safePrompt = emptyIfBlank(prompt).toLowerCase(Locale.ROOT);
         if (!StringUtils.hasText(safePrompt)) {
@@ -112,6 +149,10 @@ public class ReactDecisionParser {
         );
     }
 
+    /**
+     * 构造一条规则兜底的 {@code finish} 决策：citations/evidence 由
+     * citation/evidence 参数拼装，{@link ReasonDecision#fallback()} 恒为 true。
+     */
     private ReasonDecision decision(String thought, String answer, String citation, String evidence) {
         return new ReasonDecision(
                 thought,
@@ -124,11 +165,22 @@ public class ReactDecisionParser {
         );
     }
 
-    /** 供最终回答消毒使用：从疑似决策 JSON 的原始输出中提取 answer 字段，提取不到返回空串。 */
+    /**
+     * 供最终回答消毒使用：从疑似决策 JSON 的原始输出中提取 {@code answer}
+     * 字段（含 {@code action_input.answer} 嵌套与正则兜底），提取不到返回空串。
+     *
+     * @param raw 疑似包含决策 JSON 的原始文本，可为空
+     * @return 提取出的 answer 文本；提取不到时为空串
+     */
     public String extractAnswerFromRaw(String raw) {
         return extractAnswerField(raw);
     }
 
+    /**
+     * 构造非兜底性质的 {@code finish} 决策：优先从原始输出提取 {@code answer}
+     * 字段，提取不到则用原始文本本身作为回答；citations/evidence 置空、
+     * {@link ReasonDecision#fallback()} 为 false。
+     */
     private ReasonDecision finishWithAnswer(String thought, String rawModelOutput) {
         String answer = extractAnswerField(rawModelOutput);
         if (!StringUtils.hasText(answer)) {
@@ -176,6 +228,10 @@ public class ReactDecisionParser {
         return "";
     }
 
+    /**
+     * 从原始输出中截取疑似 JSON 片段：首个左花括号到末个右花括号（含）。
+     * 截不到有效区间（无括号或顺序颠倒）返回空串。
+     */
     private String extractJson(String raw) {
         if (!StringUtils.hasText(raw)) {
             return "";
@@ -185,10 +241,15 @@ public class ReactDecisionParser {
         return start < 0 || end <= start ? "" : raw.substring(start, end + 1);
     }
 
+    /** 动作名归一化：trim + 小写；空白输入归为 {@code finish}。 */
     private String normalizeAction(String action) {
         return StringUtils.hasText(action) ? action.trim().toLowerCase(Locale.ROOT) : "finish";
     }
 
+    /**
+     * 关键词包含判断：text 或任一 keyword 为空白时返回 false；
+     * keyword 逐个转小写后与已小写的 text 做包含比较。
+     */
     private boolean containsAny(String text, String... keywords) {
         if (!StringUtils.hasText(text) || keywords == null || keywords.length == 0) {
             return false;
@@ -201,10 +262,23 @@ public class ReactDecisionParser {
         return false;
     }
 
+    /** 空白串归一为空串，其余原样返回。 */
     private String emptyIfBlank(String value) {
         return StringUtils.hasText(value) ? value : "";
     }
 
+    /**
+     * ReAct 单步决策结果。
+     *
+     * @param thought     planner 的思考文本（兜底场景为规则说明）
+     * @param action      归一化后的动作名（query_school/query_course/
+     *                    add_course_reservation/rag_search/finish）
+     * @param actionInput 动作入参；解析不出时为空 Map，永不为 null
+     * @param answer      finish 场景的最终回答；中间步骤可为空串
+     * @param citations   引用来源列表（形如 {@code source=..., chunk=1}）；无引用时为空列表
+     * @param evidence    证据/规则说明列表；无证据时为空列表
+     * @param fallback    是否走了兜底/降级路径（true 表示未依赖 planner 正常输出）
+     */
     public record ReasonDecision(String thought,
                                  String action,
                                  Map<String, Object> actionInput,

@@ -28,6 +28,22 @@ public class EvidenceJudgeService {
     private static final double AUTHORITY_WEIGHT = 0.30;
     private static final double TIMELINESS_WEIGHT = 0.20;
 
+    /**
+     * 对混合检索结果逐条做三维评分并降序返回（docs/architecture-hybrid-retrieval.md
+     * 「证据评分」）：
+     * <ul>
+     *   <li>相关性（权重 0.50）：检索融合分为基，查询词命中内容时每词 +0.05、上限 +0.3；</li>
+     *   <li>权威性（权重 0.30）：来源类型固定档位 graph 0.90 &gt; vector 0.75 &gt; keyword 0.65 &gt; web 0.50；</li>
+     *   <li>时效性（权重 0.20）：元数据时间戳分档（&lt;30 天 1.0 → &lt;365 天 0.7 → 更早 0.5），
+     *       无时间戳取中性 0.70。</li>
+     * </ul>
+     * 综合分 = relevance × 0.50 + authority × 0.30 + timeliness × 0.20。
+     * 耗时经 {@code evidence.judge.latency} 直方图打点上报。
+     *
+     * @param documents 融合后的候选文档
+     * @param query     原始用户查询（相关性加分用）
+     * @return 按综合分降序的证据列表
+     */
     public List<EvidenceItem> judge(List<ScoredDocument> documents, String query) {
         Timer.Sample sample = Timer.start(meterRegistry);
         try {
@@ -62,6 +78,7 @@ public class EvidenceJudgeService {
         }
     }
 
+    /** 相关性：融合分为基 + 查询词（≥2 字符）在正文中的命中加分，封顶 1.0。 */
     private double scoreRelevance(ScoredDocument doc, String query) {
         // Use the retrieval score as a base, boosted by keyword overlap
         double base = doc.getFinalScore();
@@ -80,6 +97,7 @@ public class EvidenceJudgeService {
         return Math.min(1.0, base + boost);
     }
 
+    /** 权威性：按来源类型的固定档位（graph &gt; vector &gt; keyword &gt; web）。 */
     private double scoreAuthority(ScoredDocument doc) {
         return switch (doc.getSourceType()) {
             case "graph" -> 0.90;   // structured knowledge graph data
@@ -90,6 +108,7 @@ public class EvidenceJudgeService {
         };
     }
 
+    /** 时效性：metadata 的 created_at/timestamp（epoch 毫秒）按距今天数分档；缺失或不可解析取中性 0.70。 */
     private double scoreTimeliness(ScoredDocument doc) {
         // Default: no timestamp metadata → neutral score
         if (doc.getMetadata() == null) return 0.70;
@@ -110,6 +129,7 @@ public class EvidenceJudgeService {
         }
     }
 
+    /** 组装可读评分理由：来源中文标签 + 三个维度的百分比。 */
     private String buildReason(ScoredDocument doc, double relevance,
                                 double authority, double timeliness) {
         String sourceLabel = switch (doc.getSourceType()) {
@@ -123,6 +143,7 @@ public class EvidenceJudgeService {
                 sourceLabel, relevance * 100, authority * 100, timeliness * 100);
     }
 
+    /** 折叠空白后截断至 maxLen，超长补省略号。 */
     private String truncate(String text, int maxLen) {
         if (!StringUtils.hasText(text)) return "";
         String cleaned = text.replaceAll("\\s+", " ").trim();

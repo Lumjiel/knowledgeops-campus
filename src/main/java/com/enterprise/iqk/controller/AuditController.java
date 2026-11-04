@@ -12,12 +12,20 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * File: AuditController.java
+ * <p>
+ * 审计日志查询端点（{@code /audit/logs}）：按当前租户隔离返回最新审计记录；
+ * 双层权限控制——路由级（SecurityConfiguration 的 PERM_AUDIT_READ/ROLE）+
+ * 方法级 {@code @PreAuthorize}。
+ */
 @RestController
 @RequestMapping("/audit")
 @RequiredArgsConstructor
 public class AuditController {
     private final AuditLogMapper auditLogMapper;
 
+    /** 查询当前租户最新审计记录，limit 被夹取到 [1, 200]。 */
     @GetMapping("/logs")
     @PreAuthorize("hasAnyAuthority('PERM_AUDIT_READ','ROLE_ADMIN')")
     public List<AuditLog> latest(@RequestParam(value = "limit", defaultValue = "50") int limit) {

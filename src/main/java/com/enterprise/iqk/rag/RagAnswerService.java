@@ -16,6 +16,7 @@ import io.micrometer.core.instrument.Timer;
 import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.document.Document;
@@ -32,6 +33,24 @@ import java.util.Map;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
+/**
+ * File: RagAnswerService.java
+ * <p>
+ * RAG 问答主链路：向量检索（带租户 + 会话过滤）→ 精排 → 预算校验 → LLM 生成 →
+ * 引用与证据组装，并附带三层记忆的读写接线。
+ * <ul>
+ *   <li>{@link #answer}：完整问答。检索范围为 {@code tenant_id + (chat_id || 共享语料 chat_id)}，
+ *       精排后取 rerankTopK 作为上下文；调用前经 {@code TenantCostService} 预算断言，
+ *       调用后记录 token 用量；答案尾部追加「引用来源」脚注，结果携带条款级引用卡片
+ *       （{@link CitationCard}）与检索轨迹（recall/coarse/fine 计数与耗时）。</li>
+ *   <li>{@link #debugRetrieve}：只跑「检索 + 精排」的调试入口，供离线评测与 bad case 定位。</li>
+ * </ul>
+ * <p>
+ * 可观测性：retrieval / rerank / 整体管线三段均有 Timer 与 Counter
+ * （{@code rag.*}），按 outcome（success/empty/error）打标，异常向上抛出但
+ * 指标照常记录；记忆读写失败静默降级，不阻断问答主链路。
+ */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RagAnswerService {
@@ -48,9 +67,13 @@ public class RagAnswerService {
 
     /**
      * 只跑「检索 + 精排」不调用 LLM 的调试入口，与 answer() 完全同一条链路。
-     * 供离线评测（Hit@K / MRR）和 bad case 定位使用。
+     * 供离线评测（Hit@K / MRR）和 bad case 定位使用。prompt 为空时抛
+     * {@link IllegalArgumentException}（与 answer() 一致）。
      */
     public PipelineDebugResult debugRetrieve(String prompt, String tenantId, String chatId, int topK) {
+        if (!StringUtils.hasText(prompt)) {
+            throw new IllegalArgumentException("prompt is required");
+        }
         String normalizedTenantId = TenantContext.normalize(tenantId);
         String filterExpression = "tenant_id == \"" + escapeFilterValue(normalizedTenantId)
                 + "\" && (chat_id == \"" + escapeFilterValue(chatId)
@@ -84,11 +107,31 @@ public class RagAnswerService {
                 pipeline.degraded(), pipeline.coarseMs(), pipeline.fineMs(), recallMs);
     }
 
+    /**
+     * 调试检索结果：documents 为按精排名次的行（rank/metadata/content），
+     * recallCount 为召回总数，degraded/coarseMs/fineMs/recallMs 为管线实测数据。
+     */
     public record PipelineDebugResult(List<Map<String, Object>> documents, int recallCount,
                                       boolean degraded, long coarseMs, long fineMs, long recallMs) {
     }
 
+    /**
+     * 完整 RAG 问答入口。检索为空时直接返回固定话术（不调 LLM，但照常写入记忆）；
+     * 命中后走精排 → 预算断言 → LLM → 用量记账，finally 中统一记录管线时延
+     * 与请求计数（outcome: success/empty/error）。检索/精排/生成任一环节异常
+     * 会向上抛出，调用方（控制器）负责兜底。
+     * <p>
+     * 边界与部分失败防护：prompt 为空直接 400（{@link IllegalArgumentException}，
+     * 全局异常处理器转 badRequest）；精排结果为空按「未检索到」兜底，不带着
+     * 空上下文调 LLM（防无根据生成）；LLM 返回空答案以明确异常上抛（绝不把
+     * {@code null} 拼进引用脚注）；token 记账失败仅告警，不吞掉已生成的答案。
+     * 有意不做强制超时：LLM 调用无法安全中断，超时后放任后台继续只会产生孤儿
+     * 计费与重复记忆写入，超时应由底层 HTTP 客户端配置兜底。
+     */
     public RagResult answer(String prompt, String tenantId, String chatId, String conversationId, String modelProfile) {
+        if (!StringUtils.hasText(prompt)) {
+            throw new IllegalArgumentException("prompt is required");
+        }
         Timer.Sample pipelineSample = Timer.start(meterRegistry);
         String pipelineOutcome = "error";
 
@@ -118,7 +161,20 @@ public class RagAnswerService {
             }
 
             RerankPipeline.PipelineResult pipeline = rerankWithMetrics(prompt, retrieved);
-            List<Document> selected = pipeline.documents().stream()
+            List<Document> reranked = pipeline == null || pipeline.documents() == null
+                    ? List.of()
+                    : pipeline.documents();
+            if (reranked.isEmpty()) {
+                // 精排后一无所有：与检索为空同等兜底，绝不带着空上下文调 LLM
+                pipelineOutcome = "empty";
+                persistConversationMemory(normalizedTenantId, memoryUserId, chatId, prompt);
+                return RagResult.builder()
+                        .answer("没有在当前知识库中检索到可用内容。")
+                        .citations(List.of())
+                        .evidence(List.of("文档经精排后无可用内容，请调整检索词。"))
+                        .build();
+            }
+            List<Document> selected = reranked.stream()
                     .limit(Math.max(1, ragProperties.getRerankTopK()))
                     .toList();
 
@@ -134,8 +190,19 @@ public class RagAnswerService {
                 .advisors(a -> a.param(CONVERSATION_ID, conversationId))
                     .call()
                     .content();
+            if (!StringUtils.hasText(answer)) {
+                // 空 answer 直接拼脚注会产出 "null---..." 这类脏字符串
+                throw new IllegalStateException("LLM returned an empty answer (model="
+                        + decision.model() + ", profile=" + modelProfile + ")");
+            }
             long outputTokens = tenantCostService.estimateTokens(answer);
-            tenantCostService.recordUsage(normalizedTenantId, decision.costTier(), inputTokens, outputTokens, "rag");
+            try {
+                tenantCostService.recordUsage(normalizedTenantId, decision.costTier(), inputTokens, outputTokens, "rag");
+            } catch (Exception billingEx) {
+                // 答案已经生成：记账失败只损失一笔用量统计，不能让用户请求跟着失败
+                log.warn("failed to record token usage for tenant {} ({} input / {} output tokens): {}",
+                        normalizedTenantId, inputTokens, outputTokens, billingEx.getMessage(), billingEx);
+            }
 
             List<String> citations = selected.stream()
                     .map(this::citationText)
@@ -172,6 +239,7 @@ public class RagAnswerService {
         }
     }
 
+    /** 向量相似检索，包一层 rag.retrieval.* Timer/Counter（按 outcome 打标）。 */
     private List<Document> similaritySearchWithMetrics(SearchRequest request) {
         Timer.Sample sample = Timer.start(meterRegistry);
         String outcome = "error";
@@ -193,12 +261,16 @@ public class RagAnswerService {
         }
     }
 
+    /** 粗排 + 精排管线调用，包一层 rag.rerank.* Timer（按 outcome 打标）。 */
     private RerankPipeline.PipelineResult rerankWithMetrics(String prompt, List<Document> docs) {
         Timer.Sample sample = Timer.start(meterRegistry);
         String outcome = "error";
         try {
             RerankPipeline.PipelineResult reranked = rerankPipeline.rerank(prompt, docs, ragProperties.getRerankTopK());
-            outcome = reranked.documents().isEmpty() ? "empty" : "success";
+            // 管线实现理论上可能返回 null 或 documents=null，按 empty 计而不是 NPE
+            outcome = reranked == null || reranked.documents() == null || reranked.documents().isEmpty()
+                    ? "empty"
+                    : "success";
             return reranked;
         } finally {
             sample.stop(Timer.builder("rag.rerank.latency")
@@ -209,10 +281,17 @@ public class RagAnswerService {
         }
     }
 
+    /** 把精排后的文档拼成带 [n] 编号的 LLM 上下文（编号与引用脚注一一对应）。 */
     private String buildContext(List<Document> docs) {
+        if (docs == null || docs.isEmpty()) {
+            return "";
+        }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < docs.size(); i++) {
             Document d = docs.get(i);
+            if (d == null) {
+                continue;
+            }
             sb.append("[").append(i + 1).append("] ")
                     .append(citationText(d))
                     .append("\n")
@@ -222,6 +301,7 @@ public class RagAnswerService {
         return sb.toString();
     }
 
+    /** 旧版引用字符串：{@code source=<file_name>, chunk=<chunk_index>}。 */
     private String citationText(Document d) {
         Object file = d.getMetadata().getOrDefault("file_name", "unknown");
         Object chunk = d.getMetadata().getOrDefault("chunk_index", "?");
@@ -267,6 +347,7 @@ public class RagAnswerService {
         return new CitationCard(index, displayName, page, chunkIndex, snippet);
     }
 
+    /** 证据文本：原文空白归一化并截断到 180 字符。 */
     private String evidenceText(Document d) {
         String raw = emptyIfBlank(d.getText()).replaceAll("\\s+", " ").trim();
         if (raw.length() <= 180) {
@@ -329,7 +410,9 @@ public class RagAnswerService {
             }
             return sb.toString();
         } catch (Exception e) {
-            // 记忆读失败不阻断问答主链路
+            // 记忆读失败不阻断问答主链路，但原因要留痕
+            log.warn("failed to load known-info memory for tenant {} user {}: {}",
+                    tenantId, userId, e.getMessage(), e);
             return "";
         }
     }
@@ -375,24 +458,33 @@ public class RagAnswerService {
                 memoryService.saveShortMemory(tenantId, userId, summary, "summary");
             }
         } catch (RuntimeException e) {
-            // 记忆写失败不阻断问答主链路（SpotBugs REC_CATCH_EXCEPTION：try 块无可抛受检异常）
+            // 记忆写失败不阻断问答主链路（SpotBugs REC_CATCH_EXCEPTION：try 块无可抛受检异常），但原因要留痕
+            log.warn("failed to persist conversation memory for tenant {} chat {}: {}",
+                    tenantId, chatId, e.getMessage(), e);
         }
     }
 
+    /** short 记忆标题：prompt 空白归一化后截断到 30 字符。 */
     private String titleOf(String prompt) {
         String clean = emptyIfBlank(prompt).replaceAll("\\s+", " ").trim();
         return clean.length() <= 30 ? clean : clean.substring(0, 30) + "...";
     }
 
+    /** 空白转空串，避免后续处理出现 null。 */
     private String emptyIfBlank(String value) {
         return StringUtils.hasText(value) ? value : "";
     }
 
+    /**
+     * 过滤表达式取值转义：反斜杠与双引号各翻倍，防止 chatId/tenantId 中的
+     * 特殊字符破坏向量库过滤表达式结构（过滤注入防线）。
+     */
     private String escapeFilterValue(String value) {
         String raw = emptyIfBlank(value);
         return raw.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    /** 追加在答案尾部的「引用来源」脚注（[1][2]… 编号），无引用时返回空串。 */
     private String formatCitationFooter(List<String> citations) {
         if (citations == null || citations.isEmpty()) {
             return "";
@@ -404,6 +496,11 @@ public class RagAnswerService {
         return sb.toString();
     }
 
+    /**
+     * 问答结果：answer 已含引用脚注；citations 为旧格式字符串列表；
+     * citationCards 为条款级结构化卡片；evidence 为证据摘要；
+     * retrievalTrace 为三级管线实测轨迹（见 {@link #buildRetrievalTrace}）。
+     */
     @Data
     @Builder
     public static class RagResult {

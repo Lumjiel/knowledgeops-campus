@@ -27,6 +27,13 @@ public class KeywordRetriever {
     private final Tokenizer tokenizer;
     private final RagProperties ragProperties;
 
+    /**
+     * 执行关键词检索：以向量库为文档源（宽松阈值 0.25、topK×2 候选），
+     * 再按「标题词重叠 × 0.6 + 内容词重叠 × 0.4」重打分（重叠系数 = 命中词数 /
+     * 目标词表大小，目标为空得 0 分），得分 &gt; 0.05 才保留，降序取 topK。
+     * 补充向量检索：捕获「Redis 缓存穿透」这类精确术语匹配。
+     * 耗时经 {@code retrieval.keyword.latency} 直方图按 outcome 打点上报。
+     */
     public List<ScoredDocument> retrieve(String query, String tenantId, String chatId, int topK) {
         Timer.Sample sample = Timer.start(meterRegistry);
         String outcome = "error";
@@ -82,16 +89,19 @@ public class KeywordRetriever {
         }
     }
 
+    /** 重叠系数：|query ∩ target| / |target|（目标为空时 0）。 */
     private double overlapScore(Set<String> query, Set<String> target) {
         if (target.isEmpty()) return 0.0;
         long overlap = query.stream().filter(target::contains).count();
         return (double) overlap / target.size();
     }
 
+    /** 分词去重并保持出现顺序（LinkedHashSet），保证同文同分。 */
     private Set<String> tokenize(String text) {
         return new java.util.LinkedHashSet<>(tokenizer.tokenize(text));
     }
 
+    /** 读元数据字符串，缺失时返回 fallback。 */
     private String metaStr(Document d, String key, String fallback) {
         Object v = d.getMetadata().get(key);
         return v == null ? fallback : v.toString();

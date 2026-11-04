@@ -1,3 +1,6 @@
+/*
+ * 混合检索服务：并行聚合向量、关键词、图谱、Web 四路召回，经去重与加权排序后返回 top-K 文档。
+ */
 package com.enterprise.iqk.retrieval;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -19,6 +22,25 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+/**
+ * 混合检索服务：并行发起向量、关键词、图谱、Web 四路召回，对结果做加权融合、指纹去重与降序排序，
+ * 返回最终 top-K 文档。
+ *
+ * <p>设计要点：
+ * <ul>
+ *   <li>各召回源为阻塞 IO，统一投递到专用守护线程池 {@code hybrid-retrieval} 执行，
+ *       避免占用 {@code ForkJoinPool.commonPool()} 导致 JVM 内并行流饥饿；</li>
+ *   <li>单源召回超时 {@value #SOURCE_TIMEOUT_SECONDS} 秒，超时或抛出 {@link RuntimeException}
+ *       时按空结果降级，不阻断整体检索（见 {@link #retrieveAsync}）;</li>
+ *   <li>融合分 = 源内检索分 × 归一化后权重，权重可通过 {@link HybridWeights} 配置并归一化到和为 1.0；</li>
+ *   <li>按内容指纹（正文前 200 字符）去重，重复时保留融合分最高的一条（见 {@link #deduplicate}）;</li>
+ *   <li>通过 Micrometer 指标 {@code retrieval.hybrid.latency} 记录整体延迟，
+ *       以 outcome（success / empty / error）打标，并发布百分位直方图。</li>
+ * </ul>
+ *
+ * <p>线程安全：本类无可变共享状态（检索结果对象在各线程内独立创建与修改），
+ * {@code retrievalExecutor} 在 Bean 销毁时通过 {@link #shutdownRetrievalExecutor()} 关闭。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -38,6 +60,10 @@ public class HybridRetrievalService {
         return thread;
     });
 
+    /**
+     * Bean 销毁钩子：立即中断仍在执行的召回任务并关闭专用线程池，
+     * 防止应用停机时残留守护线程阻塞 JVM 退出或在半关闭状态下继续发起 IO。
+     */
     @PreDestroy
     void shutdownRetrievalExecutor() {
         retrievalExecutor.shutdownNow();
@@ -118,6 +144,13 @@ public class HybridRetrievalService {
         }
     }
 
+    /**
+     * 就地设置每篇文档的融合分：finalScore = 源内检索分 × 该源权重。
+     *
+     * @param docs   某一召回源返回的文档列表
+     * @param weight 该源在归一化权重中所占比例
+     * @return 同一列表（已写入 finalScore），便于在调用处链式使用
+     */
     private List<ScoredDocument> applyWeight(List<ScoredDocument> docs, double weight) {
         for (ScoredDocument d : docs) {
             d.setFinalScore(d.getRetrievalScore() * weight);
@@ -125,6 +158,19 @@ public class HybridRetrievalService {
         return docs;
     }
 
+    /**
+     * 将单路召回提交到专用线程池异步执行，并做双重降级：
+     * <ul>
+     *   <li>任务抛出 {@link RuntimeException} 时记录 warn 日志并返回空列表；</li>
+     *   <li>超过 {@value #SOURCE_TIMEOUT_SECONDS} 秒未完成时以空列表超时完成
+     *       （{@code completeOnTimeout}，原任务线程不中断）。</li>
+     * </ul>
+     *
+     * @param source    召回源标识，用于日志定位（vector / keyword / graph / web）
+     * @param retrieval 阻塞召回逻辑（调用方负责按各自签名适配参数）
+     * @param weight    该源的归一化权重
+     * @return 必不抛出异常、必在超时内完成的召回 Future
+     */
     private CompletableFuture<List<ScoredDocument>> retrieveAsync(String source,
                                                                   Supplier<List<ScoredDocument>> retrieval,
                                                                   double weight) {
@@ -138,6 +184,13 @@ public class HybridRetrievalService {
         }, retrievalExecutor).completeOnTimeout(List.of(), SOURCE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
+    /**
+     * 按内容指纹去重：指纹相同的文档仅保留融合分最高的一条。
+     * 使用 {@link LinkedHashMap} 保持首次出现顺序，保证同分场景下结果确定性。
+     *
+     * @param docs 四路召回合并后的全部文档
+     * @return 去重后的新列表（不修改入参）
+     */
     private List<ScoredDocument> deduplicate(List<ScoredDocument> docs) {
         Map<String, ScoredDocument> seen = new LinkedHashMap<>();
         for (ScoredDocument d : docs) {
@@ -150,6 +203,13 @@ public class HybridRetrievalService {
         return new ArrayList<>(seen.values());
     }
 
+    /**
+     * 计算去重指纹：取正文（null 视为空串），将连续空白折叠为单个空格并去首尾空白，
+     * 截取前 200 个字符作为指纹。
+     *
+     * @param d 待计算指纹的文档
+     * @return 规范化后的指纹串，永不为 null
+     */
     private String fingerprint(ScoredDocument d) {
         String content = d.getContent() != null ? d.getContent() : "";
         // Use first 200 chars as dedup key
@@ -157,6 +217,13 @@ public class HybridRetrievalService {
         return normalized.length() <= 200 ? normalized : normalized.substring(0, 200);
     }
 
+    /**
+     * 混合检索结果。
+     *
+     * @param documents         去重、加权排序并截取后的 top-K 文档
+     * @param totalBeforeDedup  四路召回合并后的文档总数（去重前）
+     * @param totalAfterDedup   指纹去重后的文档总数（排序截取前）
+     */
     public record HybridRetrievalResult(List<ScoredDocument> documents, int totalBeforeDedup,
                                          int totalAfterDedup) {}
 }

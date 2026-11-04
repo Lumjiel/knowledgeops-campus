@@ -11,6 +11,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * File: IngestionQueueConfiguration.java
+ * <p>
+ * RabbitMQ 拓扑声明（{@code queue-backend=rabbitmq} 时装配）：主交换机/队列 + DLQ
+ * 交换机/队列，主队列配置 x-dead-letter-exchange/routing-key，使被拒绝或过期的
+ * 消息自动转入死信队列（对应 docs/architecture-enterprise.md 的 DLQ sink 设计）。
+ */
 @Configuration
 @RequiredArgsConstructor
 @ConditionalOnProperty(prefix = "app.ingestion", name = "queue-backend", havingValue = "rabbitmq")
@@ -18,6 +25,7 @@ public class IngestionQueueConfiguration {
 
     private final IngestionProperties ingestionProperties;
 
+    /** 声明主/DLQ 交换机、持久化队列及绑定关系（幂等，已存在时复用）。 */
     @Bean
     public Declarables ingestionRabbitDeclarables() {
         IngestionProperties.Rabbit rabbit = ingestionProperties.getRabbit();

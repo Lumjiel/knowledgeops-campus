@@ -1,0 +1,384 @@
+/* App.vue 的应用骨架样式（由 <style scoped src> 引入，保持 scoped 隔离）。
+   组件专属样式已随模板迁至 EvaluationPanel / SettingsDialog / MemoryHintBar。 */
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  color: var(--ui-text);
+}
+
+.console-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--ui-panel) 80%, transparent);
+}
+
+.console-nav button {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--ui-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.console-nav button.active {
+  color: var(--ui-text);
+  background: color-mix(in oklab, var(--ui-card) 94%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(14, 116, 144, 0.22);
+}
+
+.ops-panel {
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--ui-panel) 86%, transparent);
+}
+
+.ops-panel summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  background: color-mix(in oklab, var(--ui-card) 80%, transparent);
+}
+
+.ops-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.ops-body {
+  padding: 12px;
+}
+
+.workspace {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-head {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--ui-border);
+  background: color-mix(in oklab, var(--ui-card) 84%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.workspace-kicker {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+
+h2 {
+  margin: 8px 0 0;
+  font-size: 22px;
+  line-height: 1.22;
+}
+
+.workspace-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ui-muted);
+}
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.stream-detail {
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.welcome-block {
+  max-width: 930px;
+  margin: 0 auto 12px;
+  padding: 0 20px;
+}
+
+.welcome-block h3 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.16;
+}
+
+.welcome-block p {
+  margin: 8px 0 0;
+  color: var(--ui-muted);
+}
+
+.welcome-prompts {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.welcome-prompts button {
+  border: 1px solid var(--ui-border);
+  background: color-mix(in oklab, var(--ui-panel) 88%, transparent);
+  color: var(--ui-text);
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ── 校园规章主题设计令牌（styles.css 不在改动白名单，挂 .app-shell 等效 :root） ── */
+.app-shell {
+  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --color-primary: #1e3a8a;
+  --color-accent: #2563eb;
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-text: #0f172a;
+  --color-text-sub: #64748b;
+  --color-border: #e2e8f0;
+  --color-quote-bg: #f1f5f9;
+  --radius-card: 10px;
+  --radius-chip: 8px;
+  --radius-input: 12px;
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-hover: 0 4px 12px rgba(15, 23, 42, 0.1);
+}
+
+/* ── 空状态 chip（spec-A3/A9）；.quick-prompts 样式随输入区移至 ChatInput.vue ── */
+.welcome-prompts button {
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.welcome-prompts button:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-hover);
+}
+
+@media (max-width: 1160px) {
+  .app-shell {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--ui-border);
+  }
+
+  .workspace-head {
+    position: static;
+  }
+}
+
+@media (max-width: 680px) {
+  .workspace-head {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .head-actions {
+    justify-content: flex-start;
+  }
+
+  .welcome-block {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+
+/* ════════════════════════════════════════════════
+   有章 · 学术风覆盖层（改版新增，位于最末以获得优先级）
+   ════════════════════════════════════════════════ */
+
+/* ── 整体骨架 ── */
+.app-shell {
+  height: 100vh;
+  grid-template-columns: 264px minmax(0, 1fr);
+  background: var(--ui-paper);
+}
+
+/* 游客模式标识 */
+.guest-chip {
+  --el-tag-font-size: 11px;
+}
+
+/* 侧栏样式已随模板移至 components/Sidebar.vue */
+
+/* ── 主区顶栏 ── */
+.workspace-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 28px;
+  border-bottom: 1px solid var(--ui-border-soft);
+  background: var(--ui-surface);
+}
+
+.workspace-head > div:first-of-type {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.workspace-kicker {
+  margin: 0 0 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--ui-muted);
+  text-transform: none;
+}
+
+.workspace-sub {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--ui-muted);
+}
+
+.stream-detail {
+  font-size: 11.5px;
+  color: var(--ui-muted);
+}
+
+/* 设置弹窗样式已随模板移至 components/SettingsDialog.vue */
+/* 评测页样式已随模板移至 components/EvaluationPanel.vue */
+
+/* ════════ 响应式：侧栏抽屉 + 移动端适配 ════════ */
+
+/* 侧栏开关按钮（顶栏） */
+.sidebar-toggle {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-toggle:hover {
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent);
+}
+
+/* 遮罩：仅移动端抽屉打开时显示 */
+.sidebar-backdrop {
+  display: none;
+}
+
+/* ── 桌面：侧栏可完全收起 ── */
+@media (min-width: 901px) {
+  .app-shell {
+    transition: grid-template-columns 0.2s ease;
+  }
+
+  .app-shell.sidebar-closed {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .app-shell.sidebar-closed .sidebar {
+    display: none;
+  }
+}
+
+/* ── 移动端（≤900px）：侧栏变抽屉，整体瘦身 ── */
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    display: block;
+    position: relative;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(78vw, 300px);
+    transform: translateX(-102%);
+    transition: transform 0.22s ease;
+    box-shadow: 0 0 40px rgba(28, 43, 58, 0.18);
+    overflow-y: auto;
+  }
+
+  .app-shell.sidebar-open .sidebar {
+    transform: none;
+  }
+
+  .sidebar-backdrop {
+    display: none;
+  }
+
+  .app-shell.sidebar-open ~ .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(28, 43, 58, 0.35);
+    backdrop-filter: blur(1px);
+  }
+
+  /* 顶栏固定：滚动时保持可见（豆包/DeepSeek 式） */
+  .workspace-head {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 10px 14px;
+  }
+
+  .workspace-kicker,
+  .workspace-sub,
+  .stream-detail {
+    display: none;
+  }
+
+  .workspace-head h2 {
+    font-size: 13.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 46vw;
+  }
+
+  .welcome-block {
+    max-width: 100%;
+    padding: 0 12px 14px;
+  }
+
+  /* 输入区收紧（样式在 ChatInput.vue） */
+}

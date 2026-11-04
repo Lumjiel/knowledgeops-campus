@@ -16,6 +16,18 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import jakarta.servlet.http.HttpServletResponse;
+
+/**
+ * File: SecurityConfiguration.java
+ * <p>
+ * 安全主配置：无状态会话 + CSRF 关闭 + 企业安全响应头；按路径声明
+ * 路由级权限（PERM_* / ROLE_* authorities，即文档「RBAC + route-level permission
+ * checks」）；装配过滤器链（认证 → 上下文 → 指标 → 限流 → 审计）；
+ * 403 返回带 needUpgrade 的结构化 JSON。security.enabled=false 时全部放行。
+ */
 @Configuration
 @EnableMethodSecurity
 @RequiredArgsConstructor
@@ -28,6 +40,13 @@ public class SecurityConfiguration {
     private final AuditLogFilter auditLogFilter;
     private final HttpMetricsFilter httpMetricsFilter;
 
+    /**
+     * 安全过滤器链：请求匹配规则见方法体（公开端点 → 各业务端点权限 → 其余
+     * 全部需认证）；过滤器顺序为 ApiKeyOrJwtAuthFilter（认证）→
+     * RequestContextFilter（上下文）→ HttpMetricsFilter（指标）→
+     * RateLimitFilter（限流，认证后，可用 principal 复合键）→
+     * AuditLogFilter（审计，最后记录含限流结果的真实状态码）。
+     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
@@ -72,11 +91,27 @@ public class SecurityConfiguration {
             );
         }
 
+        // 无权限（含游客越权）时返回结构化 JSON，而非容器默认的空 403：
+        // needUpgrade 字段供前端识别「功能受限」并给出登录/升级引导卡片。
+        http.exceptionHandling(eh -> eh.accessDeniedHandler(
+                (request, response, ex) -> writeProblemJson(response,
+                        HttpServletResponse.SC_FORBIDDEN, "access denied: permission required")));
+
         http.addFilterBefore(apiKeyOrJwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterAfter(requestContextFilter, ApiKeyOrJwtAuthFilter.class);
         http.addFilterAfter(httpMetricsFilter, RequestContextFilter.class);
         http.addFilterAfter(rateLimitFilter, ApiKeyOrJwtAuthFilter.class);
         http.addFilterAfter(auditLogFilter, RateLimitFilter.class);
         return http.build();
+    }
+
+    /** 统一的鉴权失败响应体：{ok, code, msg, needUpgrade}，与 ApiKeyOrJwtAuthFilter#unauthorized 的 401 风格一致。 */
+    private static void writeProblemJson(HttpServletResponse response, int status, String msg)
+            throws IOException {
+        response.setStatus(status);
+        response.setContentType("application/json");
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.getWriter().write(
+                "{\"ok\":0,\"code\":" + status + ",\"msg\":\"" + msg + "\",\"needUpgrade\":true}");
     }
 }

@@ -12,6 +12,13 @@ import java.util.List;
 @Service
 public class CitationService {
 
+    /**
+     * 为证据列表生成编号引用（index 从 1 递增），字段直取证据的
+     * source/title/url/chunkId，confidence 取证据综合分，excerpt 取 snippet。
+     *
+     * @param evidence 已按分数降序的证据列表
+     * @return 与 evidence 同序的编号引用列表
+     */
     public List<CitationItem> buildCitations(List<EvidenceItem> evidence) {
         List<CitationItem> citations = new ArrayList<>();
         for (int i = 0; i < evidence.size(); i++) {
@@ -29,6 +36,11 @@ public class CitationService {
         return citations;
     }
 
+    /**
+     * 把引用渲染为追加到答案尾部的「引用来源」段落：每行
+     * {@code [n] 标题 (来源类型) 可信度: nn%}（可信度为 0 时省略）；
+     * 无引用返回空串。
+     */
     public String formatCitationFooter(List<CitationItem> citations) {
         if (citations == null || citations.isEmpty()) return "";
         StringBuilder sb = new StringBuilder("\n\n---\n引用来源:\n");

@@ -48,6 +48,13 @@ public class RerankPipeline {
     }
 
     public PipelineResult rerank(String query, List<Document> candidates, int finalTopK) {
+        return rerank(query, candidates, finalTopK, null);
+    }
+
+    /**
+     * fineOverride: null = 按 ragProperties.fineReranker 配置走；"none" = 强制跳过精排（只粗排，零 API 成本）。
+     */
+    public PipelineResult rerank(String query, List<Document> candidates, int finalTopK, String fineOverride) {
         if (candidates == null || candidates.isEmpty()) {
             return new PipelineResult(List.of(), false, 0, 0, 0, 0);
         }
@@ -64,7 +71,9 @@ public class RerankPipeline {
         boolean degraded = false;
         long fineMs = 0;
         boolean isCe = "gte".equalsIgnoreCase(ragProperties.getFineReranker());
-        boolean fineEnabled = ("rrf".equalsIgnoreCase(ragProperties.getFineReranker()) || isCe)
+        String effectiveFine = fineOverride != null ? fineOverride : ragProperties.getFineReranker();
+        boolean fineEnabled = !"none".equalsIgnoreCase(effectiveFine)
+                && ("rrf".equalsIgnoreCase(effectiveFine) || "gte".equalsIgnoreCase(effectiveFine))
                 && coarseRanked.size() > 1;
         if (!fineEnabled) {
             fineRanked = coarseRanked;

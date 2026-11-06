@@ -28,9 +28,10 @@ public class RetrievalDebugController {
         String chatId = String.valueOf(body.getOrDefault("chatId", "eval-harness"));
         int topK = body.get("topK") == null ? 10 : Integer.parseInt(String.valueOf(body.get("topK")));
         String tenantId = TenantContext.normalize((String) body.get("tenantId"));
+        boolean fine = body.get("fine") == null || Boolean.parseBoolean(String.valueOf(body.get("fine")));
 
         RagAnswerService.PipelineDebugResult result =
-                ragAnswerService.debugRetrieve(prompt, tenantId, chatId, topK);
+                ragAnswerService.debugRetrieve(prompt, tenantId, chatId, topK, fine);
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("ok", 1);

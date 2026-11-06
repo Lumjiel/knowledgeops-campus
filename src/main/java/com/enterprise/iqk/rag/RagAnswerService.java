@@ -71,6 +71,10 @@ public class RagAnswerService {
      * {@link IllegalArgumentException}（与 answer() 一致）。
      */
     public PipelineDebugResult debugRetrieve(String prompt, String tenantId, String chatId, int topK) {
+        return debugRetrieve(prompt, tenantId, chatId, topK, true);
+    }
+
+    public PipelineDebugResult debugRetrieve(String prompt, String tenantId, String chatId, int topK, boolean fine) {
         if (!StringUtils.hasText(prompt)) {
             throw new IllegalArgumentException("prompt is required");
         }
@@ -91,7 +95,7 @@ public class RagAnswerService {
 
         RerankPipeline.PipelineResult pipeline = retrieved == null || retrieved.isEmpty()
                 ? new RerankPipeline.PipelineResult(List.of(), false, 0, 0, 0, 0)
-                : rerankWithMetrics(prompt, retrieved);
+                : rerankWithMetrics(prompt, retrieved, fine);
 
         List<Document> docs = pipeline.documents();
         List<Map<String, Object>> rows = new ArrayList<>();
@@ -160,7 +164,7 @@ public class RagAnswerService {
                         .build();
             }
 
-            RerankPipeline.PipelineResult pipeline = rerankWithMetrics(prompt, retrieved);
+            RerankPipeline.PipelineResult pipeline = rerankWithMetrics(prompt, retrieved, true);
             List<Document> reranked = pipeline == null || pipeline.documents() == null
                     ? List.of()
                     : pipeline.documents();
@@ -262,11 +266,12 @@ public class RagAnswerService {
     }
 
     /** 粗排 + 精排管线调用，包一层 rag.rerank.* Timer（按 outcome 打标）。 */
-    private RerankPipeline.PipelineResult rerankWithMetrics(String prompt, List<Document> docs) {
+    private RerankPipeline.PipelineResult rerankWithMetrics(String prompt, List<Document> docs, boolean fine) {
         Timer.Sample sample = Timer.start(meterRegistry);
         String outcome = "error";
         try {
-            RerankPipeline.PipelineResult reranked = rerankPipeline.rerank(prompt, docs, ragProperties.getRerankTopK());
+            RerankPipeline.PipelineResult reranked = rerankPipeline.rerank(
+                    prompt, docs, ragProperties.getRerankTopK(), fine ? null : "none");
             // 管线实现理论上可能返回 null 或 documents=null，按 empty 计而不是 NPE
             outcome = reranked == null || reranked.documents() == null || reranked.documents().isEmpty()
                     ? "empty"

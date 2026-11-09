@@ -74,3 +74,6 @@ logs/
 .env
 .env.local
 reports/*.tmp
+
+# 测试隔离区（17 个旧测试已移入，git 历史可恢复）
+.quarantine-tests/

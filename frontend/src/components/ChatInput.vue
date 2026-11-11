@@ -1,16 +1,6 @@
 <template>
   <footer class="composer-shell">
     <div class="composer">
-      <div v-if="isEmptyConversation" class="quick-prompts">
-        <button
-          v-for="sample in quickPrompts"
-          :key="sample"
-          type="button"
-          @click="promptModel = sample"
-        >
-          {{ sample }}
-        </button>
-      </div>
       <div class="composer-main">
         <button
           v-if="!guestMode"
@@ -88,12 +78,6 @@ const promptModel = computed({
   },
 });
 
-const quickPrompts = [
-  '旷课 50 学时会被怎么处分',
-  '缓考怎么办',
-  '转专业需要什么条件',
-  '被记过了还能入党吗',
-];
 
 const pdfInputRef = ref<HTMLInputElement | null>(null);
 const pdfUploading = ref(false);
@@ -151,12 +135,6 @@ async function onPdfFileChange(event: Event): Promise<void> {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-}
-
-.quick-prompts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 .composer-actions {
@@ -251,34 +229,6 @@ async function onPdfFileChange(event: Event): Promise<void> {
   display: flex;
   justify-content: center;
   padding-bottom: 2px;
-}
-
-.quick-prompts {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-}
-
-.quick-prompts button {
-  border: 1px solid var(--ui-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ui-muted);
-  font-size: 12px;
-  font-family: inherit;
-  padding: 4px 13px;
-  cursor: pointer;
-  transition:
-    color 0.12s ease,
-    border-color 0.12s ease,
-    background 0.12s ease;
-}
-
-.quick-prompts button:hover {
-  color: var(--ui-accent);
-  border-color: var(--ui-accent-line);
-  background: var(--ui-accent-soft);
 }
 
 .composer-actions {

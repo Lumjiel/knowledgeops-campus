@@ -29,10 +29,6 @@
     </div>
 
     <template v-else>
-      <div v-if="isEmptyConversation" class="empty-hint">
-        <p>从下面的示例问题开始，或直接输入你的问题</p>
-      </div>
-
       <!-- 虚拟滚动上下占位符：高度 = 未渲染消息的累计行高，撑起真实滚动条 -->
       <div class="virtual-spacer" :style="{ height: `${virtualTopSpacer}px` }"></div>
 
@@ -1662,6 +1658,22 @@ onBeforeUnmount(() => {
     padding-right: 12px;
   }
 
+  /* 字号与卡片自适应：手机端整体收紧 */
+  .bubble {
+    font-size: 15px;
+    line-height: 1.65;
+    padding: 10px 12px;
+  }
+
+  .markdown :deep(p) {
+    line-height: 1.65;
+  }
+
+  .bubble-meta {
+    font-size: 11px;
+    gap: 6px;
+  }
+
   /* 引用卡在窄屏收紧留白 */
   .citation-panel {
     padding: 8px 6px;
@@ -1696,21 +1708,6 @@ onBeforeUnmount(() => {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-/* ── 空会话提示（极简） ── */
-.empty-hint {
-  margin: 14vh auto 0;
-  max-width: 930px;
-  padding: 0 20px;
-  text-align: center;
-}
-
-.empty-hint p {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--ui-muted);
-  opacity: 0.75;
 }
 
 /* ── 消息 ── */
@@ -1822,8 +1819,7 @@ onBeforeUnmount(() => {
   /* 消息区：卡片自适应铺满 */
   .message-row,
   .thinking,
-  .hydration-skeleton,
-  .empty-hint {
+  .hydration-skeleton {
     max-width: 100%;
     padding: 0 12px 14px;
   }

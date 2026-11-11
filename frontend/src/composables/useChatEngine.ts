@@ -414,7 +414,7 @@ export function useChatEngine(options: UseChatEngineOptions) {
           messages.value[assistantIndex].state = 'error';
           streamPhase.value = 'error';
           streamStatusDetail.value = message;
-          ElMessage.error(message);
+          // 失败文案已写入气泡，不再弹全局 toast（移动端打断场景避免打扰）
         }
       }
     } finally {

@@ -1,0 +1,16 @@
+services:
+  handbook-lite:
+    build: ./lite-backend
+    container_name: handbook-lite
+    restart: unless-stopped
+    environment:
+      - PORT=8091
+      - UPSTREAM=http://knowledgeops-agent:8080
+    ports:
+      - "127.0.0.1:8091:8091"
+    networks:
+      - knowledgeops_default
+
+networks:
+  knowledgeops_default:
+    external: true

@@ -273,3 +273,15 @@ async function onPdfFileChange(event: Event): Promise<void> {
   }
 }
 </style>
+
+/* ── 移动端：输入区收紧（≤680px） ── */
+@media (max-width: 680px) {
+  .composer-shell {
+    padding: 0 10px 10px;
+  }
+
+  .composer {
+    padding: 8px;
+    border-radius: 12px;
+  }
+}

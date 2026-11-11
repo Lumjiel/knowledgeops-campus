@@ -1686,6 +1686,7 @@ onBeforeUnmount(() => {
   .message-row {
     grid-template-columns: 32px minmax(0, 1fr);
     gap: 8px;
+    padding-bottom: 10px;
   }
 
   .message-row.user {

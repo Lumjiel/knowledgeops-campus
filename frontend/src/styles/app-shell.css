@@ -383,3 +383,28 @@ h2 {
 
   /* 输入区收紧（样式在 ChatInput.vue） */
 }
+
+/* ════════ 移动端简约化（≤680px）：字号/留白/顶栏收敛 ════════
+   位于文件末尾以获得最高优先级，覆盖上方桌面值 ════════ */
+@media (max-width: 680px) {
+  .workspace-head {
+    padding: 8px 12px;
+  }
+
+  /* 「当前会话」小标在手机上多余，隐藏 */
+  .workspace-kicker {
+    display: none;
+  }
+
+  .workspace-head h2 {
+    font-size: 13.5px;
+  }
+
+  .workspace-sub {
+    font-size: 11px;
+  }
+
+  .stream-detail {
+    font-size: 10.5px;
+  }
+}

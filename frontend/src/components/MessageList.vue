@@ -537,9 +537,23 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
  * iframe/form 等），配合模块级 DOMPurify 钩子补 rel=noopener noreferrer，
  * 防 LLM 输出中的提示注入与 reverse-tabnabbing（见下方原注释）。
  */
+/**
+ * Markdown 渲染缓存：模板中 renderMarkdown(content) 是方法调用，组件的
+ * 任意响应式变化（滚动、ResizeObserver 回写行高、流状态切换）都会触发
+ * 重渲染——超长回答每次全量 marked+DOMPurify 会在移动端把主线程吃满
+ * （「页面无响应」）。按 content 做命中缓存，相同内容只解析一次。
+ * 简单 FIFO 淘汰，容量 200 条足够会话场景。
+ */
+const markdownCache = new Map<string, string>();
+const MARKDOWN_CACHE_MAX = 200;
+
 function renderMarkdown(content: string): string {
   if (!content?.trim()) {
     return '<p>等待模型输出...</p>';
+  }
+  const cached = markdownCache.get(content);
+  if (cached !== undefined) {
+    return cached;
   }
   const html = marked.parse(content) as string;
   // Defense-in-depth: explicitly forbid inline event handlers, javascript:
@@ -547,7 +561,7 @@ function renderMarkdown(content: string): string {
   // the dangerous forms (script, onerror, javascript:), but the defaults
   // leave target and a few other attributes alone, which is enough to
   // enable reverse-tabnabbing on links rendered from LLM output.
-  return DOMPurify.sanitize(html, {
+  const safe = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-code'],
     ALLOWED_ATTR: [
       'href',
@@ -568,6 +582,14 @@ function renderMarkdown(content: string): string {
     FORBID_ATTR: ['style', 'onload', 'onclick', 'onerror', 'onmouseover'],
     FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'input'],
   });
+  if (markdownCache.size >= MARKDOWN_CACHE_MAX) {
+    const oldest = markdownCache.keys().next().value;
+    if (oldest !== undefined) {
+      markdownCache.delete(oldest);
+    }
+  }
+  markdownCache.set(content, safe);
+  return safe;
 }
 
 /**
@@ -859,18 +881,35 @@ function setMessageRowRef(messageId: string, element: HTMLElement | null): void 
  * 仅在 force、距底不足 180px、或父组件正在发送（流式跟随）时执行，
  * 避免用户上翻阅读历史时被强行拉回。
  */
+/**
+ * 流式跟随节流：每个 token 事件都调用 scrollToBottom，若每次都强制
+ * layout（scrollHeight 读取），长回答在移动端会把主线程吃满。
+ * 用「pending 标记 + rAF」把同一帧内的多次调用合并为一次。
+ */
+let scrollPending = false;
+let scrollForcePending = false;
+
 async function scrollToBottom(force = false): Promise<void> {
-  await nextTick();
-  const element = containerRef.value;
-  if (!element) {
+  scrollForcePending = scrollForcePending || force;
+  if (scrollPending) {
     return;
   }
+  scrollPending = true;
+  await nextTick();
+  requestAnimationFrame(() => {
+    scrollPending = false;
+    const element = containerRef.value;
+    if (!element) {
+      return;
+    }
 
-  const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
-  if (force || remaining < 180 || props.sending) {
-    element.scrollTop = element.scrollHeight;
-    scrollTop.value = element.scrollTop;
-  }
+    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+    if (scrollForcePending || remaining < 180 || props.sending) {
+      element.scrollTop = element.scrollHeight;
+      scrollTop.value = element.scrollTop;
+    }
+    scrollForcePending = false;
+  });
 }
 
 /** 会话/分支切换后丢弃旧测量值，按估算行高重新布局（与原 loadSession 行为一致） */

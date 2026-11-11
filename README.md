@@ -69,18 +69,9 @@ docker compose -f docker-compose.lite.yml up -d
 
 换语料：替换 `demo-data/` 下的 PDF，删除向量卷重启即自动重新导入（见部署手册「换语料」节）。
 
-## 学习手册（17 章，从问题到面试叙事）
+## 更多文档
 
-完整的「这个项目是怎么做出来的」教程，按学习路径排列在 [docs/学习手册/](docs/学习手册/README.md)：
-
-| 章节 | 内容 |
-|---|---|
-| 00-03 | 目录与学习路径 · 项目解决的问题 · 技术栈全景 · 本地十步跑起来 |
-| 04-08 | 代码地图 · 混合检索精读 · 两段重排管线 · ReAct 规划循环 · 引用与拒答 |
-| 09-14 | 四层记忆系统 · 文档摄入管线 · 评测体系 · 前端工程 · 数据模型 |
-| 15-17 | 部署与运维 · 面试叙事与追问 · 练习册 |
-
-更多文档：[快速上手](docs/getting-started.md) · [本地运行](docs/local-run-guide.md) · [架构说明](docs/architecture-hybrid-retrieval.md) · [演示脚本](docs/demo-script.md) · [变更记录](CHANGELOG.md)
+[快速上手](docs/getting-started.md) · [本地运行](docs/local-run-guide.md) · [架构说明](docs/architecture-hybrid-retrieval.md) · [演示脚本](docs/demo-script.md) · [变更记录](CHANGELOG.md)
 
 ## 仓库结构
 
@@ -93,7 +84,7 @@ docker compose -f docker-compose.lite.yml up -d
 ├── frontend/                           # Vue3 + Element Plus + Vite
 ├── demo-data/                          # 示例语料（学生手册 2023 版 PDF）
 ├── eval/                               # 检索评测：28 条标注集 + Hit@K / MRR 脚本
-├── docs/                               # 架构文档 + 学习手册（17 章）
+├── docs/                               # 架构文档与使用指南
 └── docker-compose.lite.yml             # 轻量部署（推荐）
 ```
 

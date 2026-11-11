@@ -163,11 +163,18 @@ func main() {
 		if p != "" {
 			if f, err := sub.Open(p); err == nil {
 				_ = f.Close()
+				// hashed assets are immutable: cache for a year
+				if strings.HasPrefix(p, "assets/") {
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				}
 				static.ServeHTTP(w, r)
 				return
 			}
 		}
-		// SPA fallback
+		// SPA fallback: index.html must always revalidate, otherwise a
+		// cached stale index keeps loading old hashed assets after a deploy
+		// (the "old tab stays broken, incognito works" failure mode).
+		w.Header().Set("Cache-Control", "no-cache")
 		r.URL.Path = "/"
 		static.ServeHTTP(w, r)
 	})

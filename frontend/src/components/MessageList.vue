@@ -1662,6 +1662,15 @@ onBeforeUnmount(() => {
     padding-right: 12px;
   }
 
+  /* 引用卡在窄屏收紧留白 */
+  .citation-panel {
+    padding: 8px 6px;
+  }
+
+  .citation-card {
+    padding: 8px 10px;
+  }
+
   .message-row {
     grid-template-columns: 32px minmax(0, 1fr);
     gap: 8px;
@@ -1770,8 +1779,8 @@ onBeforeUnmount(() => {
 .citation-card {
   background: color-mix(in oklab, var(--ui-panel) 70%, transparent);
   border: 1px solid var(--ui-border-soft);
-  border-radius: 12px;
-  padding: 12px 16px;
+  border-radius: 10px;
+  padding: 10px 12px;
   box-shadow: none;
 }
 

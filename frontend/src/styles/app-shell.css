@@ -344,7 +344,8 @@ h2 {
     display: none;
   }
 
-  .app-shell.sidebar-open ~ .sidebar-backdrop {
+  /* backdrop 是 .app-shell 的子元素（App.vue 中 v-if 渲染），必须用后代选择器 */
+  .app-shell.sidebar-open .sidebar-backdrop {
     display: block;
     position: fixed;
     inset: 0;
